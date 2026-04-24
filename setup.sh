@@ -38,12 +38,27 @@ touch src/doit/plugins/__init__.py
 touch src/doit/plugins/base.py
 
 # ------------------------------------------------------------
+# Detect Python on all platforms
+# ------------------------------------------------------------
+if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="python"
+elif [ -x "/c/Program Files/Python314/python.exe" ]; then
+    PYTHON_BIN="/c/Program Files/Python314/python.exe"
+else
+    echo "❌ Python not found. Please install Python 3.x and ensure it is on PATH."
+    exit 1
+fi
+echo "Using Python interpreter: $PYTHON_BIN"
+
+# ------------------------------------------------------------
 # 3. Create venv INSIDE project root (not nested)
 # ------------------------------------------------------------
 echo "🐍 Creating or updating virtual environment..."
 
 if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
+    "$PYTHON_BIN" -m venv .venv
     echo "✨ Created .venv in project root"
 else
     echo "ℹ️  .venv already exists — reusing"

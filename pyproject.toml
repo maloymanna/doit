@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "doit"
+version = "0.0.1"
+description = "Local agent with Playwright+Edge and plugin-based capabilities"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml",
+    "playwright",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+doit = "doit.cli:main"

@@ -1,0 +1,2 @@
+readonly_input_dir: "readonly_input"
+max_iterations_limit: 20

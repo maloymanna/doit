@@ -1,0 +1,25 @@
+chatgpt_url: "https://chat.openai.com"
+edge_executable_path: "/path/to/msedge"
+persistent_profile_path: "/path/to/profile"
+
+viewport:
+  width: 1280
+  height: 900
+
+timeouts:
+  navigation: 15000
+  selector: 8000
+  response_complete: 30000
+
+selectors:
+  prompt_textarea: "textarea"
+  send_button: "button"
+  file_upload_button: "button"
+  file_input: "input[type='file']"
+  message_container: "div"
+  in_progress_spinner: ".spinner"
+  response_done_marker: ".done"
+
+actions:
+  slow_mo: 50
+  headless: false

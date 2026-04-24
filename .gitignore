@@ -1,0 +1,76 @@
+# -----------------------------
+# Python build artifacts
+# -----------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.so
+*.dll
+
+# Packaging metadata
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# -----------------------------
+# Doit runtime state (workspace)
+# -----------------------------
+# IMPORTANT:
+# The workspace is NOT inside the repo.
+# But if someone accidentally runs doit inside the repo,
+# this prevents accidental commits.
+# -----------------------------
+.doit/
+sessions/
+plugins/
+autonomy_mode
+allowlist.txt
+playwright_config.yaml
+config.yaml
+
+# -----------------------------
+# Playwright / Browser Artifacts
+# -----------------------------
+# If someone accidentally launches Edge persistent context
+# inside the repo, ignore it.
+# -----------------------------
+**/Default/
+**/User Data/
+**/Crashpad/
+**/BrowserMetrics/
+**/blob_storage/
+**/GPUCache/
+**/Local Storage/
+**/IndexedDB/
+**/Service Worker/
+**/Network/
+**/File System/
+**/databases/
+
+# -----------------------------
+# Test outputs
+# -----------------------------
+test-output/
+coverage/
+htmlcov/

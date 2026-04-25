@@ -84,7 +84,7 @@ echo "⬆️ Upgrading pip + setuptools..."
 $PYTHON_BIN -m pip install --upgrade pip setuptools wheel
 
 echo "📥 Installing doit in editable mode..."
-$PYTHON_BIN pip install -e .
+"$PYTHON_BIN" pip install -e .
 
 echo "🎉 Setup complete!"
 echo

@@ -37,19 +37,18 @@ touch src/doit/browser/controller.py
 touch src/doit/plugins/__init__.py
 touch src/doit/plugins/base.py
 
-# ------------------------------------------------------------
-# Detect Python on all platforms
-# ------------------------------------------------------------
-if command -v python3 >/dev/null 2>&1; then
+# Check the OS (Linux or Windows)
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Linux/Ubuntu
     PYTHON_BIN="python3"
-elif command -v python >/dev/null 2>&1; then
+elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+    # Windows (Git Bash)
     PYTHON_BIN="python"
-elif [ -x "/c/Program Files/Python314/python.exe" ]; then
-    PYTHON_BIN="/c/Program Files/Python314/python.exe"
 else
-    echo "❌ Python not found. Please install Python 3.x and ensure it is on PATH."
+    echo "❌ Unsupported OS."
     exit 1
 fi
+
 echo "Using Python interpreter: $PYTHON_BIN"
 
 # ------------------------------------------------------------
@@ -82,12 +81,22 @@ fi
 # 5. Install dependencies
 # ------------------------------------------------------------
 echo "⬆️ Upgrading pip + setuptools..."
-pip install --upgrade pip setuptools wheel
+$PYTHON_BIN -m pip install --upgrade pip setuptools wheel
 
 echo "📥 Installing doit in editable mode..."
-pip install -e .
+$PYTHON_BIN pip install -e .
 
 echo "🎉 Setup complete!"
 echo
 echo "To start working, run:"
-echo "  source .venv/bin/activate"
+# Check the OS (Linux or Windows)
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Linux/Ubuntu
+    echo "  source .venv/bin/activate"
+elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+    # Windows (Git Bash)
+    echo "  source .venv/Scripts/activate"
+else
+    echo "❌ Unsupported OS."
+    exit 1
+fi

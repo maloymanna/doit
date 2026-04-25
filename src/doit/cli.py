@@ -1,59 +1,115 @@
 import argparse
-import os
-from .orchestrator import Orchestrator
+import asyncio
+from pathlib import Path
 
-def prompt_user(message: str) -> bool:
-    ans = input(f"{message} [y/N]: ").strip().lower()
-    return ans in ("y", "yes")
+from .orchestrator import Orchestrator
+from .browser.controller import (
+    EdgeUnavailableError,
+    AllowlistError,
+    BrowserError,
+)
+
 
 def main():
     parser = argparse.ArgumentParser(prog="doit")
-    sub = parser.add_subparsers(dest="command")
-
-    init_p = sub.add_parser("init-workspace")
-    init_p.add_argument("--workspace", default=".")
-
-    list_p = sub.add_parser("list-plugins")
-    list_p.add_argument("--workspace", default=".")
-
-    sum_p = sub.add_parser("summarize-file")
-    sum_p.add_argument("path")
-    sum_p.add_argument("--project", required=True)
-    sum_p.add_argument("--workspace", default=".")
-
+    parser.add_argument("command", nargs="?", default="help")
+    parser.add_argument("--workspace", default=".")
+    parser.add_argument("--project", default="default")
+    parser.add_argument("--url", default=None)
+    parser.add_argument("--model", default=None)
+    parser.add_argument("--prompt", default="Hello from doit Milestone 2")
+    parser.add_argument("--files", nargs="*", default=None)
     args = parser.parse_args()
-    if not args.command:
-        parser.print_help()
-        return
 
-    workspace_root = os.path.abspath(getattr(args, "workspace", "."))
-    orch = Orchestrator(workspace_root, prompt_user)
+    async def run():
+        orch = Orchestrator(Path(args.workspace))
 
-    if args.command == "init-workspace":
-        cfg = orch.config
-        cfg.ensure_dirs()
-        if not os.path.exists(cfg.config_path):
-            cfg.save_config({"readonly_input_dir": "readonly_input"})
-        if not os.path.exists(cfg.allowlist_path):
-            with open(cfg.allowlist_path, "w", encoding="utf-8") as f:
-                f.write("")
-        if not os.path.exists(cfg.playwright_config_path):
-            with open(cfg.playwright_config_path, "w", encoding="utf-8") as f:
-                f.write("# TODO: fill Playwright+Edge config\n")
-        if not os.path.exists(cfg.autonomy_mode_path):
-            cfg.set_autonomy_mode(0)
-        print(f"Initialized workspace at {workspace_root}")
+        # -----------------------------
+        # Milestone 2 test command
+        # -----------------------------
+        if args.command == "chat-test":
+            try:
+                # Ensure browser + session
+                await orch.open_chat_session(args.project)
 
-    elif args.command == "list-plugins":
-        for name in orch.plugins.keys():
-            print(name)
+                if args.url:
+                    await orch.navigate(args.url)
 
-    elif args.command == "summarize-file":
-        result = orch.run_command("summarize_file", {
-            "file_path": os.path.join(workspace_root, args.path),
-            "project_name": args.project,
-        })
+                # Start new chat
+                await orch.browser.click_new_chat()
+
+                # Select model (default or override)
+                await orch.browser.select_model(args.model)
+
+                # Send prompt
+                await orch.browser.send_prompt(args.prompt, files=args.files)
+
+                # Poll status
+                while True:
+                    status = await orch.get_status()
+                    if status in ("idle", "complete"):
+                        break
+                    await asyncio.sleep(0.2)
+
+                # Extract results
+                last_msg = await orch.get_last_response()
+                tokens = await orch.get_last_response_tokens()
+                full_conv = await orch.get_conversation_history()
+                copied = await orch.get_last_response_via_copy()
+
+                print("\n=== LAST ASSISTANT MESSAGE ===")
+                print(last_msg or "<none>")
+
+                print("\n=== LAST ASSISTANT TOKENS ===")
+                print(tokens)
+
+                print("\n=== FULL CONVERSATION ===")
+                for msg in full_conv:
+                    print(f"[{msg['role']}] {msg['text']}")
+
+                print("\n=== COPY VIA UI ===")
+                print(copied or "<none>")
+
+            except EdgeUnavailableError as e:
+                print("ERROR: Edge unavailable:", e)
+            except AllowlistError as e:
+                print("ERROR: URL blocked by allowlist:", e)
+            except BrowserError as e:
+                print("Browser error:", e)
+            except Exception as e:
+                print("Unexpected error:", e)
+
+            return
+
+        # -----------------------------
+        # Other built-in commands (examples)
+        # -----------------------------
+        if args.command == "init-workspace":
+            # Minimal example: orchestrator/config will create .doit
+            orch = Orchestrator(Path(args.workspace))
+            print("Initializing workspace:", args.workspace)
+            # Accessing config will create .doit and default files
+            _ = orch.config.data
+            print("Workspace initialized.")
+            return
+
+        if args.command == "list-plugins":
+            # Placeholder: plugin discovery will be implemented in Milestone 3
+            print("Installed plugins: (not implemented yet)")
+            return
+
+        if args.command == "summarize-file":
+            print("summarize-file not implemented in CLI stub.")
+            return
+
+        # -----------------------------
+        # Default: non‑browser commands
+        # -----------------------------
+        result = orch.run(args.command)
         print(result)
+
+    asyncio.run(run())
+
 
 if __name__ == "__main__":
     main()

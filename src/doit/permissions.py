@@ -1,40 +1,38 @@
-import os
+from typing import Callable, Optional
+
+
+class PermissionError(Exception):
+    pass
+
 
 class Permissions:
-    def __init__(self, config, prompt_user_fn):
-        self.config = config
-        self.prompt_user = prompt_user_fn
+    """
+    Simple permissions helper.
 
-    @property
-    def workspace_root(self) -> str:
-        return self.config.workspace_root
+    - `prompt_user_fn` is optional for non-interactive runs.
+    - If not provided, a default non-interactive prompt is used that raises
+      PermissionError for any interactive confirmation request.
+    """
 
-    @property
-    def readonly_input_dir(self) -> str:
-        cfg = self.config.load_config()
-        return os.path.join(self.workspace_root, cfg.get("readonly_input_dir", "readonly_input"))
+    def __init__(self, workspace_root: str, prompt_user_fn: Optional[Callable[[str], bool]] = None):
+        self.workspace_root = workspace_root
+        # default prompt function: non-interactive (safe)
+        if prompt_user_fn is None:
+            def _default_prompt(msg: str) -> bool:
+                # Non-interactive default: deny interactive requests.
+                raise PermissionError(f"Interactive prompt required but no prompt_user_fn provided: {msg}")
+            self.prompt_user_fn = _default_prompt
+        else:
+            self.prompt_user_fn = prompt_user_fn
 
-    def _normalize(self, path: str) -> str:
-        return os.path.abspath(path)
+    def confirm(self, message: str) -> bool:
+        """
+        Ask user for confirmation. If no interactive prompt is available,
+        this will raise PermissionError.
+        """
+        return bool(self.prompt_user_fn(message))
 
-    def check_path(self, path: str) -> None:
-        p = self._normalize(path)
-        if not p.startswith(self.workspace_root):
-            raise RuntimeError(f"Path outside workspace: {p}")
-
-    def can_read(self, path: str) -> bool:
-        self.check_path(path)
-        return True
-
-    def can_write(self, path: str) -> bool:
-        self.check_path(path)
-        if self._normalize(path).startswith(self._normalize(self.readonly_input_dir)):
-            raise RuntimeError("Cannot write into readonly_input")
-        return True
-
-    def can_delete(self, path: str, recursive: bool = False) -> bool:
-        self.check_path(path)
-        return False
-
-    def ensure_url_allowed(self, url: str) -> None:
-        pass
+    # convenience factory used by other modules
+    @classmethod
+    def non_interactive(cls, workspace_root: str):
+        return cls(workspace_root, prompt_user_fn=None)

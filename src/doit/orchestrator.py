@@ -28,9 +28,13 @@ class Orchestrator:
     """
 
     def __init__(self, workspace_root: Path):
+        # load config first
         self.config = Config(workspace_root)
-        self.permissions = Permissions(self.config)
+        # create permissions (non-interactive default)
+        self.permissions = Permissions.non_interactive(str(self.config.data.get("workspace_root", workspace_root)))
+        # create FileManager with the Permissions instance (NOT the Config)
         self.files = FileManager(self.permissions)
+        #self.permissions = Permissions(self.config)
         self.browser: Optional[BrowserController] = None
 
     # -----------------------------

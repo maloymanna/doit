@@ -70,29 +70,6 @@ class BrowserController:
     async def _wait(self, ms: int):
         await asyncio.sleep(ms / 1000)
 
-    async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
-        if not self.page:
-            return
-
-        try:
-            if target_host in urlparse(self.page.url).netloc:
-                return
-        except:
-            pass
-
-        try:
-            await self.page.wait_for_url("**/login**", timeout=5000)
-            await self.page.wait_for_url(f"**://*{target_host}**/*", timeout=timeout_ms)
-            return
-        except:
-            pass
-
-        try:
-            await self.page.wait_for_url(f"**://*{target_host}**/*", timeout=timeout_ms)
-        except:
-            return
-
-
     # -----------------------------
     # Playwright lifecycle
     # -----------------------------

@@ -88,8 +88,7 @@ class BrowserController:
             )
             await ctx.close()
         except Exception as exc:
-            await self.playwright.stop()
-            self.playwright = None
+            print(f"[ensure_running] Browser launch failed: {exc}")
             raise EdgeUnavailableError(
                 "Microsoft Edge (msedge) could not be launched. "
                 "This controller is Edge‑only."
@@ -114,8 +113,7 @@ class BrowserController:
                 args=self.launch_args,
             )
         except Exception as exc:
-            await self.playwright.stop()
-            self.playwright = None
+            print(f"[open_chat_session] Failed to launch persistent context: {exc}")
             raise EdgeUnavailableError(
                 "Failed to launch Edge persistent context."
             ) from exc
@@ -180,36 +178,38 @@ class BrowserController:
 
         await self.page.goto(url, wait_until=wait_until)
 
-# new helper: wait for manual SSO and final navigation
-async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
-    """
-    If an SSO/login page appears, wait for the user to complete manual login
-    and for navigation to the target_host (e.g. usegpt.myorg).
-    """
-    if not self.page:
-        raise BrowserError("Session not open.")
+    # -----------------------------
+    # SSO Login Helper (FIXED: properly indented as a method)
+    # -----------------------------
+    async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
+        """
+        If an SSO/login page appears, wait for the user to complete manual login
+        and for navigation to the target_host (e.g. usegpt.myorg).
+        """
+        if not self.page:
+            raise BrowserError("Session not open.")
 
-    # quick check: if already on target host, return immediately
-    try:
-        parsed = urlparse(self.page.url)
-        if parsed.netloc and target_host in parsed.netloc:
-            return
-    except Exception:
-        pass
-
-    # Wait for either a login page or direct navigation to target_host.
-    # First wait briefly to see if a login page appears.
-    try:
-        await self.page.wait_for_url("**/login**", timeout=5000)
-        # user likely needs to login manually; wait for navigation to target_host
-        await self.page.wait_for_url(f"**://*{target_host}**/*", timeout=timeout_ms)
-    except PWTimeout:
-        # no explicit /login detected; still wait for target_host navigation
+        # quick check: if already on target host, return immediately
         try:
+            parsed = urlparse(self.page.url)
+            if parsed.netloc and target_host in parsed.netloc:
+                return
+        except Exception:
+            pass
+
+        # Wait for either a login page or direct navigation to target_host.
+        # First wait briefly to see if a login page appears.
+        try:
+            await self.page.wait_for_url("**/login**", timeout=5000)
+            # user likely needs to login manually; wait for navigation to target_host
             await self.page.wait_for_url(f"**://*{target_host}**/*", timeout=timeout_ms)
         except PWTimeout:
-            # final fallback: do nothing (caller can decide)
-            return
+            # no explicit /login detected; still wait for target_host navigation
+            try:
+                await self.page.wait_for_url(f"**://*{target_host}**/*", timeout=timeout_ms)
+            except PWTimeout:
+                # final fallback: do nothing (caller can decide)
+                return
 
     # -----------------------------
     # Status API
@@ -267,7 +267,12 @@ async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
     # New chat
     # -----------------------------
     async def click_new_chat(self):
-        btn = await self.page.wait_for_selector(self.sel("new_chat_button"))
+        new_chat_selector = self.sel("new_chat_button")
+        if not new_chat_selector:
+            # Fallback selector if not in config
+            new_chat_selector = "button:has-text('New chat')"
+        
+        btn = await self.page.wait_for_selector(new_chat_selector, timeout=self.timeout_ms)
         await btn.click()
 
     # -----------------------------
@@ -276,10 +281,15 @@ async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
     async def select_model(self, model_name: Optional[str] = None):
         model_name = model_name or self.model_name
 
-        btn = await self.page.wait_for_selector(self.sel("model_selector_button"))
+        model_selector = self.sel("model_selector_button")
+        if not model_selector:
+            # Fallback selector
+            model_selector = "button:has-text('Model')"
+        
+        btn = await self.page.wait_for_selector(model_selector, timeout=self.timeout_ms)
         await btn.click()
 
-        item = await self.page.wait_for_selector(f"button:has-text('{model_name}')")
+        item = await self.page.wait_for_selector(f"button:has-text('{model_name}')", timeout=self.timeout_ms)
         await item.click()
 
     # -----------------------------
@@ -291,6 +301,9 @@ async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
 
         prompt_sel = self.sel("prompt_input")
         send_enabled = self.sel("send_button_enabled")
+
+        if not prompt_sel or not send_enabled:
+            raise BrowserError("Required selectors not configured")
 
         # Fill prompt (contenteditable)
         await self.page.focus(prompt_sel)
@@ -305,7 +318,7 @@ async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
             await self.upload_file(files)
 
         # Click send
-        btn = await self.page.wait_for_selector(send_enabled)
+        btn = await self.page.wait_for_selector(send_enabled, timeout=self.timeout_ms)
         await btn.click()
 
         # Wait for generation to start
@@ -322,18 +335,18 @@ async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
     # File upload
     # -----------------------------
     async def upload_file(self, paths: List[str]):
-        upload_btn = await self.page.wait_for_selector(self.sel("upload_button"))
+        upload_btn = await self.page.wait_for_selector(self.sel("upload_button"), timeout=self.timeout_ms)
         await upload_btn.click()
 
-        attach_btn = await self.page.wait_for_selector(self.sel("attach_file_button"))
+        attach_btn = await self.page.wait_for_selector(self.sel("attach_file_button"), timeout=self.timeout_ms)
         await attach_btn.click()
 
         # Playwright auto-handles file chooser
-        async with self.page.expect_file_chooser() as fc:
+        async with self.page.expect_file_chooser() as fc_info:
             pass  # clicking attach triggers chooser
 
-        chooser = await fc.value
-        chooser.set_files(paths)
+        file_chooser = await fc_info.value
+        await file_chooser.set_files(paths)
 
     # -----------------------------
     # Extraction Modes (Option E)
@@ -349,24 +362,26 @@ async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
 
         # User messages
         user_sel = self.sel("user_message")
-        user_nodes = await self.page.query_selector_all(user_sel)
-        for node in user_nodes:
-            txt = await node.inner_text()
-            results.append({"role": "user", "text": txt})
+        if user_sel:
+            user_nodes = await self.page.query_selector_all(user_sel)
+            for node in user_nodes:
+                txt = await node.inner_text()
+                results.append({"role": "user", "text": txt})
 
         # Assistant messages
         asst_sel = self.sel("message_container")
-        asst_nodes = await self.page.query_selector_all(asst_sel)
-        for node in asst_nodes:
-            txt = await node.inner_text()
-            results.append({"role": "assistant", "text": txt})
+        if asst_sel:
+            asst_nodes = await self.page.query_selector_all(asst_sel)
+            for node in asst_nodes:
+                txt = await node.inner_text()
+                results.append({"role": "assistant", "text": txt})
 
-        # Sort by DOM order
-        results.sort(key=lambda x: x["text"])
         return results
 
     async def extract_last_assistant_tokens(self) -> List[str]:
         token_sel = self.sel("message_token")
+        if not token_sel:
+            return []
         nodes = await self.page.query_selector_all(token_sel)
         return [await n.inner_text() for n in nodes]
 

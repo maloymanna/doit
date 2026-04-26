@@ -70,6 +70,11 @@ class Orchestrator:
         bc = await self.ensure_browser()
         await bc.open_chat_session(project_name)
         await bc.navigate(url)
+        from urllib.parse import urlparse
+        # wait for manual SSO if presented, and for final navigation to the target host
+        target_host = urlparse(url).netloc
+        await bc.wait_for_sso(target_host)
+
         await bc.click_new_chat()
         await bc.select_model(model_name)
 
@@ -97,6 +102,9 @@ class Orchestrator:
 
         if not current_url.startswith(url):
             await bc.navigate(url)
+            from urllib.parse import urlparse
+            target_host = urlparse(url).netloc
+            await bc.wait_for_sso(target_host)
 
         # Assume caller decides when to start a new chat; we expose it separately
         if model_name:

@@ -70,6 +70,29 @@ class BrowserController:
     async def _wait(self, ms: int):
         await asyncio.sleep(ms / 1000)
 
+    async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
+        if not self.page:
+            return
+
+        try:
+            if target_host in urlparse(self.page.url).netloc:
+                return
+        except:
+            pass
+
+        try:
+            await self.page.wait_for_url("**/login**", timeout=5000)
+            await self.page.wait_for_url(f"**://*{target_host}**/*", timeout=timeout_ms)
+            return
+        except:
+            pass
+
+        try:
+            await self.page.wait_for_url(f"**://*{target_host}**/*", timeout=timeout_ms)
+        except:
+            return
+
+
     # -----------------------------
     # Playwright lifecycle
     # -----------------------------
@@ -179,6 +202,37 @@ class BrowserController:
             raise AllowlistError(f"URL not allowed: {url}")
 
         await self.page.goto(url, wait_until=wait_until)
+
+# new helper: wait for manual SSO and final navigation
+async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
+    """
+    If an SSO/login page appears, wait for the user to complete manual login
+    and for navigation to the target_host (e.g. usegpt.myorg).
+    """
+    if not self.page:
+        raise BrowserError("Session not open.")
+
+    # quick check: if already on target host, return immediately
+    try:
+        parsed = urlparse(self.page.url)
+        if parsed.netloc and target_host in parsed.netloc:
+            return
+    except Exception:
+        pass
+
+    # Wait for either a login page or direct navigation to target_host.
+    # First wait briefly to see if a login page appears.
+    try:
+        await self.page.wait_for_url("**/login**", timeout=5000)
+        # user likely needs to login manually; wait for navigation to target_host
+        await self.page.wait_for_url(f"**://*{target_host}**/*", timeout=timeout_ms)
+    except PWTimeout:
+        # no explicit /login detected; still wait for target_host navigation
+        try:
+            await self.page.wait_for_url(f"**://*{target_host}**/*", timeout=timeout_ms)
+        except PWTimeout:
+            # final fallback: do nothing (caller can decide)
+            return
 
     # -----------------------------
     # Status API

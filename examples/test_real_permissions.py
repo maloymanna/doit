@@ -2,6 +2,17 @@
 from pathlib import Path
 from doit.permissions import Permissions, PermissionError
 
+# Define workspace path ONCE at the top - change this to your actual workspace
+# On Windows Git Bash, use forward slashes without /c/ prefix
+# Examples:
+#   Linux:   workspace = Path.home() / "arbitrary_folder" / "doit-workspace"
+#   Windows: workspace = Path("C:/Users/myuser/myapp/doit-workspace")
+#   Or use:  workspace = Path.cwd().parent / "doit-workspace"  # if workspace is sibling to project
+
+WORKSPACE = Path("~/arbitrary_folder/doit-workspace").expanduser()
+# For Windows, if the above doesn't work, uncomment and modify this line:
+# WORKSPACE = Path("C:/Users/yourusername/arbitrary_folder/doit-workspace")
+
 def load_allowlist_from_workspace(workspace: Path):
     """Load allowlist from workspace .doit/allowlist.txt"""
     allowlist_file = workspace / ".doit" / "allowlist.txt"
@@ -25,7 +36,7 @@ def test_real_workspace_permissions():
     """Test permission system against actual workspace."""
     
     # Your actual workspace path
-    workspace = Path("~/Documents/02-learn/dev/doit-workspace").expanduser()
+    workspace = WORKSPACE
     
     print(f"\n{'='*60}")
     print(f"Testing Permission System with Real Workspace")
@@ -33,7 +44,16 @@ def test_real_workspace_permissions():
     print(f"Workspace: {workspace}")
     print(f"Workspace exists: {workspace.exists()}")
     print()
-    
+
+    # If workspace doesn't exist, show helpful message
+    if not workspace.exists():
+        print(f"❌ ERROR: Workspace not found at: {workspace}")
+        print(f"   Please update the WORKSPACE variable at the top of this script")
+        print(f"   to point to your actual doit workspace directory.")
+        print(f"\n   Current WORKSPACE value: {WORKSPACE}")
+        print(f"   Type of path: {type(workspace)}")
+        return
+
     # Load actual allowlist from workspace
     allowlist = load_allowlist_from_workspace(workspace)
     print()
@@ -268,7 +288,13 @@ def test_real_workspace_permissions():
 def test_with_different_autonomy_modes():
     """Test how different autonomy modes affect operations."""
     
-    workspace = Path("~/Documents/02-learn/dev/doit-workspace").expanduser()
+    workspace = WORKSPACE
+    
+    # Check if workspace exists
+    if not workspace.exists():
+        print(f"\n⚠️  Skipping autonomy mode test - workspace not found at: {workspace}")
+        return
+
     allowlist = load_allowlist_from_workspace(workspace)
     
     print(f"\n{'='*60}")

@@ -9,7 +9,7 @@ from doit.permissions import Permissions, PermissionError
 #   Windows: workspace = Path("C:/Users/myuser/myapp/doit-workspace")
 #   Or use:  workspace = Path.cwd().parent / "doit-workspace"  # if workspace is sibling to project
 
-WORKSPACE = Path("~/arbitrary_folder/doit-workspace").expanduser()
+WORKSPACE = Path("~/Documents/02-learn/dev/doit-workspace").expanduser()
 # For Windows, if the above doesn't work, uncomment and modify this line:
 # WORKSPACE = Path("C:/Users/yourusername/arbitrary_folder/doit-workspace")
 
@@ -289,7 +289,7 @@ def test_with_different_autonomy_modes():
     """Test how different autonomy modes affect operations."""
     
     workspace = WORKSPACE
-    
+
     # Check if workspace exists
     if not workspace.exists():
         print(f"\n⚠️  Skipping autonomy mode test - workspace not found at: {workspace}")

@@ -8,6 +8,56 @@ from datetime import datetime
 
 from doit.config import Config, ConfigError, AutonomyConfig, PlaywrightConfig
 
+class TestWorkspaceRequirements:
+    """Tests for workspace directory requirements."""
+    
+    def test_workspace_must_be_explicitly_provided(self):
+        """Should require explicit workspace path - no automatic discovery"""
+        # This should fail - no workspace argument provided
+        with pytest.raises(TypeError):
+            Config()  # Missing required argument
+    
+    def test_workspace_without_doit_raises_error(self, temp_workspace):
+        """Should raise error if workspace exists but has no .doit/"""
+        # Create workspace directory but no .doit subdirectory
+        workspace = temp_workspace / "some-workspace"
+        workspace.mkdir()
+        
+        with pytest.raises(ConfigError) as exc_info:
+            Config(workspace)
+        
+        assert "Not a valid doit workspace" in str(exc_info.value)
+        assert "Missing .doit/ directory" in str(exc_info.value)
+    
+    def test_workspace_can_be_outside_project_root(self, temp_workspace):
+        """Workspace can be anywhere - doesn't need to be near project root"""
+        # Create workspace in a completely separate location
+        workspace = temp_workspace / "remote-workspace"
+        workspace.mkdir()
+        
+        # Create .doit directory
+        (workspace / '.doit').mkdir()
+        
+        # Create minimal config
+        config_file = workspace / '.doit' / 'config.yaml'
+        with open(config_file, 'w') as f:
+            yaml.dump({'autonomy': {'mode': 0}}, f)
+        
+        # This should work even though it's not in project root
+        config = Config(workspace)
+        assert config.workspace_root == workspace
+        assert config.autonomy.mode == 0
+    
+    def test_workspace_separate_from_project(self):
+        """Documentation test: Workspace should NOT be project root"""
+        # Get actual project root (where this test file lives)
+        test_file = Path(__file__).resolve()
+        project_root = test_file.parent.parent.parent
+        
+        # This is just documentation - not an assertion
+        # In real usage, workspace should be different
+        print(f"\nNote: Project root is {project_root}")
+        print("Workspace should be a different directory, e.g., ~/doit-workspace")
 
 class TestConfigLoading:
     """Test configuration loading from workspace."""
@@ -60,18 +110,58 @@ class TestConfigLoading:
         assert config.autonomy.global_max_iterations == 10  # Default
     
     def test_workspace_discovery(self, temp_workspace):
-        """Should find .doit directory from subdirectory"""
+        """Should NOT traverse upward - workspace must be explicitly provided"""
         # Create workspace with .doit
         (temp_workspace / '.doit').mkdir(parents=True)
         
-        # Create config in subdirectory
+        # Create a subdirectory (this should NOT be considered a workspace)
         subdir = temp_workspace / 'subdir' / 'nested'
         subdir.mkdir(parents=True)
         
-        # Config should find workspace by looking upward
-        config = Config(subdir)
+        # Using subdir should FAIL because it doesn't have .doit/
+        with pytest.raises(ConfigError) as exc_info:
+            Config(subdir)
+        
+        assert "Not a valid doit workspace" in str(exc_info.value)
+        
+        # Using actual workspace root should SUCCEED
+        config = Config(temp_workspace)
         assert config.workspace_root == temp_workspace
+        assert config.doit_dir == temp_workspace / '.doit'
 
+    def test_workspace_without_doit(self, temp_workspace):
+        """Should raise error if .doit doesn't exist"""
+        # No .doit directory created
+        with pytest.raises(ConfigError) as exc_info:
+            Config(temp_workspace)
+        
+        assert "Missing .doit/ directory" in str(exc_info.value)
+
+    def test_workspace_with_doit(self, temp_workspace):
+        """Should work when .doit exists at workspace root"""
+        # Create .doit directory
+        (temp_workspace / '.doit').mkdir(parents=True)
+        
+        # This should succeed
+        config = Config(temp_workspace)
+        assert config.workspace_root == temp_workspace
+        assert config.doit_dir == temp_workspace / '.doit'  
+
+    def test_subdirectory_not_workspace(self, temp_workspace):
+        """Should NOT treat subdirectory as workspace root"""
+        # Create workspace with .doit at root
+        (temp_workspace / '.doit').mkdir(parents=True)
+        
+        # Create a subdirectory
+        subdir = temp_workspace / 'subdir' / 'nested'
+        subdir.mkdir(parents=True)
+        
+        # Using subdir should FAIL because it doesn't have .doit/
+        with pytest.raises(ConfigError) as exc_info:
+            Config(subdir)
+        
+        assert "Not a valid doit workspace" in str(exc_info.value)
+        assert "Missing .doit/ directory" in str(exc_info.value)              
 
 class TestAutonomyConfig:
     """Test autonomy configuration."""
@@ -150,18 +240,40 @@ class TestPlaywrightConfig:
         assert 'button:has-text("New chat")' in all_selectors
     
     def test_playwright_validation_required_selectors(self):
-        """Should validate required selectors exist"""
+        """Should raise ConfigError when required selectors missing in strict mode"""
         data = {
             'selectors': {
                 'new_chat_button': 'button.new-chat'
                 # Missing send_enabled, prompt_input, etc.
-            }
+            },
+            'strict_validation': True  # Enable strict mode
         }
         
-        config = PlaywrightConfig.from_dict(data)
+        config = PlaywrightConfig.from_dict(data, strict_validation=True)
         
+        # This should raise ConfigError when validate() is called
         with pytest.raises(ConfigError):
             config.validate()
+    
+    def test_playwright_validation_lenient_mode(self):
+        """Should only warn (not raise) in lenient mode"""
+        data = {
+            'selectors': {
+                'new_chat_button': 'button.new-chat'
+                # Missing other selectors
+            },
+            'strict_validation': False  # Lenient mode
+        }
+        
+        config = PlaywrightConfig.from_dict(data, strict_validation=False)
+        
+        # Should NOT raise an error
+        import warnings
+        with warnings.catch_warnings(record=True) as w:
+            config.validate()
+            # Should have warnings about missing selectors
+            assert len(w) >= 1
+            assert "Missing recommended selectors" in str(w[0].message)
     
     def test_playwright_viewport_validation(self):
         """Should validate viewport dimensions"""
@@ -180,39 +292,32 @@ class TestPlaywrightConfig:
 class TestConfigGetters:
     """Test configuration property getters."""
     
-    def test_get_nested_config(self, temp_workspace):
+    def test_get_nested_config(self, valid_workspace):
         """Should get nested config using dot notation"""
+        # valid_workspace already has .doit and all configs
+        config = Config(valid_workspace)
+        
+        # Update config with nested values for this test
         config_content = {
             'browser': {
                 'default_model': 'GPT-5.1',
                 'timeout': 30000
             }
         }
-        
-        config_file = temp_workspace / '.doit' / 'config.yaml'
-        config_file.parent.mkdir(parents=True)
-        with open(config_file, 'w') as f:
+        with open(valid_workspace / '.doit' / 'config.yaml', 'w') as f:
             yaml.dump(config_content, f)
         
-        config = Config(temp_workspace)
+        # Reload config
+        config.load()
         
         assert config.get('browser.default_model') == 'GPT-5.1'
         assert config.get('browser.timeout') == 30000
         assert config.get('nonexistent.key', 'default') == 'default'
-    
-    def test_property_accessors(self, temp_workspace):
+
+    def test_property_accessors(self, valid_workspace):
         """Should provide typed property accessors"""
-        config = Config(temp_workspace)
+        config = Config(valid_workspace)
         
         # Should return properly typed objects
         assert isinstance(config.autonomy, AutonomyConfig)
         assert isinstance(config.playwright, PlaywrightConfig)
-
-
-# Fixtures
-@pytest.fixture
-def temp_workspace():
-    """Create a temporary workspace for testing."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        workspace = Path(tmpdir)
-        yield workspace

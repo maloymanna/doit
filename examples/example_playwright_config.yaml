@@ -1,25 +1,59 @@
-chatgpt_url: "https://chat.openai.com"
-edge_executable_path: "/path/to/msedge"
-persistent_profile_path: "/path/to/profile"
+# Playwright + Edge configuration for usegpt.myorg
+# Based on actual HTML structure analysis
 
-viewport:
-  width: 1280
-  height: 900
-
-timeouts:
-  navigation: 15000
-  selector: 8000
-  response_complete: 30000
+browser:
+  channel: "msedge"
+  headless: false
+  slow_mo: 100  # Helps with visibility during debugging
+  viewport:
+    width: 1280
+    height: 900
+  timeout_ms: 20000
+  navigation_timeout_ms: 30000
+  launch_args:
+    - "--disable-blink-features=AutomationControlled"
 
 selectors:
-  prompt_textarea: "textarea"
-  send_button: "button"
-  file_upload_button: "button"
-  file_input: "input[type='file']"
-  message_container: "div"
-  in_progress_spinner: ".spinner"
-  response_done_marker: ".done"
+  # === Top Bar / Header ===
+  new_chat_button: "button[data-testid='new-chat-button']"
+  model_selector_button: "button[data-testid='model-selector-button']"
+  model_dropdown_item: "button:has-text('{model_name}')"  # Parameterized
+  
+  # === Input Area ===
+  prompt_input: "textarea[data-testid='prompt-input']"
+  send_button_enabled: "button[data-testid='send-button'].enabled"
+  send_button_disabled: "button[data-testid='send-button'].disabled"
+  
+  # === File Upload ===
+  upload_button: "button[data-testid='upload-button']"
+  attach_file_button: "button[data-testid='attach-file-button']"
+  
+  # === Conversation Area ===
+  conversation_container: "div[data-testid='conversation-container']"
+  message_container: "div[data-message-author-role='assistant']"
+  user_message: "div[data-message-author-role='user']"
+  assistant_message: "div[data-message-author-role='assistant']"
+  
+  # === Message Actions ===
+  copy_button: "button[data-testid='copy-button']"
+  thumbs_up_button: "button[data-testid='thumbs-up-button']"
+  thumbs_down_button: "button[data-testid='thumbs-down-button']"
+  
+  # === Status Indicators ===
+  generating_indicator: "div[data-testid='conversation-container'] .streaming"
+  idle_indicator: "button[data-testid='send-button'].enabled"
+  complete_indicator: "div[data-message-author-role='assistant']:last-child"
 
-actions:
-  slow_mo: 50
-  headless: false
+# Extraction settings
+extraction:
+  wait_for_completion: true
+  scroll_to_bottom: true
+  retry_extraction_count: 3
+  message_timeout_ms: 30000
+
+# Workflow configuration
+workflow:
+  new_chat_resets_conversation: true
+  send_button_enabled_when_text: true
+  assistant_messages_appear_below: true
+  copy_buttons_on_hover: true

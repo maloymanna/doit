@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 import yaml
 from dataclasses import dataclass, field
 from datetime import datetime
+import warnings
 
 
 class ConfigError(Exception):
@@ -136,9 +137,10 @@ class PlaywrightConfig:
     navigation_timeout_ms: int = 30000
     launch_args: list = field(default_factory=list)
     selectors: PlaywrightSelectorConfig = field(default_factory=PlaywrightSelectorConfig)
+    strict_validation: bool = False
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'PlaywrightConfig':
+    def from_dict(cls, data: Dict[str, Any], strict_validation: bool = False) -> 'PlaywrightConfig':
         browser_data = data.get('browser', {})
         selectors_data = data.get('selectors', {})
         
@@ -150,7 +152,8 @@ class PlaywrightConfig:
             timeout_ms=browser_data.get('timeout_ms', 20000),
             navigation_timeout_ms=browser_data.get('navigation_timeout_ms', 30000),
             launch_args=browser_data.get('launch_args', []),
-            selectors=PlaywrightSelectorConfig(selectors_data)
+            selectors=PlaywrightSelectorConfig(selectors_data),
+            strict_validation=strict_validation
         )
     
     def validate(self) -> None:
@@ -160,24 +163,32 @@ class PlaywrightConfig:
         if self.viewport.get('width', 0) <= 0 or self.viewport.get('height', 0) <= 0:
             raise ConfigError(f"Invalid viewport dimensions: {self.viewport}")
         
-        # Required selectors
-        required_selectors = [
-            'new_chat_button', 'send_enabled', 'prompt_input',
-            'message_container', 'generating_indicator'
-        ]
-        for selector in required_selectors:
-            if not self.selectors.get(selector):
-                raise ConfigError(f"Required selector missing: {selector}")
+        # Only validate required selectors if strict validation is enabled
+        if self.strict_validation:
+            required_selectors = [
+                'new_chat_button', 'send_enabled', 'prompt_input',
+                'message_container', 'generating_indicator'
+            ]
+            for selector in required_selectors:
+                if not self.selectors.get(selector):
+                    raise ConfigError(f"Required selector missing: {selector}")
+        else:
+            # Just warn about missing selectors, don't fail
+            required_selectors = [
+                'new_chat_button', 'send_enabled', 'prompt_input',
+                'message_container', 'generating_indicator'
+            ]
+            missing = [s for s in required_selectors if not self.selectors.get(s)]
+            if missing:
+                warnings.warn(f"Missing recommended selectors: {missing}", UserWarning)
 
 
 class Config:
     """
     Configuration manager for doit workspace.
     
-    Loads configuration from:
-    1. Defaults (hardcoded)
-    2. User config (~/.doit/config.yaml)
-    3. Workspace config (workspace_root/.doit/config.yaml)
+    IMPORTANT: Workspace must be explicitly provided. No automatic discovery.
+    Workspace can be anywhere (outside project root, different branch, etc.)
     """
     
     DEFAULT_CONFIG = {
@@ -210,10 +221,28 @@ class Config:
         Initialize configuration for a workspace.
         
         Args:
-            workspace_root: Path to workspace root directory
+            workspace_root: MUST be explicitly provided. No automatic discovery.
+                          This can be anywhere: ~/my-workspace, /var/data/workspace, etc.
+        
+        Raises:
+            ConfigError: If .doit directory not found in workspace_root
+            ValueError: If workspace_root is None or empty
         """
+        if workspace_root is None:
+            raise ValueError("Workspace path must be provided")
+        
         self.workspace_root = Path(workspace_root).resolve()
+        print(f"workspace root is: {workspace_root}")
         self.doit_dir = self.workspace_root / '.doit'
+        print(f"doit_dir is: {self.doit_dir}")
+        
+        # No upward traversal - workspace must have .doit/ at the root
+        if not self.doit_dir.exists():
+            raise ConfigError(
+                f"Not a valid doit workspace: {self.workspace_root}\n"
+                f"Missing .doit/ directory. Use 'doit init {workspace_root}' to create a workspace."
+            )
+        
         self.config_path = self.doit_dir / 'config.yaml'
         self.playwright_config_path = self.doit_dir / 'playwright_config.yaml'
         
@@ -236,9 +265,11 @@ class Config:
         if self.playwright_config_path.exists():
             with open(self.playwright_config_path, 'r') as f:
                 playwright_data = yaml.safe_load(f)
-                self._playwright_config = PlaywrightConfig.from_dict(playwright_data)
+                # Check if strict validation is enabled in config
+                strict = self._config_data.get('browser', {}).get('strict_selector_validation', False)
+                self._playwright_config = PlaywrightConfig.from_dict(playwright_data, strict_validation=strict)
         else:
-            # Create default playwright config?
+            # Create default playwright config
             self._playwright_config = PlaywrightConfig()
         
         # Validate configurations
@@ -248,8 +279,7 @@ class Config:
         """Validate all configurations."""
         # Validate autonomy
         autonomy = self.autonomy
-        if autonomy.mode not in [0, 1, 2]:
-            raise ConfigError(f"Invalid autonomy mode: {autonomy.mode}")
+        autonomy.validate()
         
         # Validate playwright config
         if self._playwright_config:
@@ -297,6 +327,42 @@ class Config:
             if value is None:
                 return default
         return value
+
+    def get_selectors_for_url(self, url: str) -> Dict[str, str]:
+        """
+        Load selectors specific to a URL domain.
+        
+        Looks for: .doit/selectors/{domain}.yaml
+        Falls back to: .doit/playwright_config.yaml selectors section
+        """
+        from urllib.parse import urlparse
+        
+        parsed = urlparse(url)
+        domain = parsed.netloc.replace('www.', '')
+        
+        # Try domain-specific selector file
+        selector_file = self.doit_dir / 'selectors' / f"{domain}.yaml"
+        
+        if selector_file.exists():
+            with open(selector_file, 'r') as f:
+                selector_config = yaml.safe_load(f)
+                return selector_config.get('selectors', {})
+        
+        # Fallback to main playwright config
+        return self.playwright.selectors.data
+    
+    def get_workflow_hints(self, url: str) -> Dict[str, Any]:
+        """Get workflow hints for a specific URL."""
+        from urllib.parse import urlparse
+        
+        domain = urlparse(url).netloc.replace('www.', '')
+        selector_file = self.doit_dir / 'selectors' / f"{domain}.yaml"
+        
+        if selector_file.exists():
+            with open(selector_file, 'r') as f:
+                return yaml.safe_load(f).get('workflow', {})
+        
+        return {}
     
     def save_main_config(self) -> None:
         """Save main configuration to file."""
@@ -316,7 +382,8 @@ class Config:
                 'timeout_ms': self._playwright_config.timeout_ms,
                 'launch_args': self._playwright_config.launch_args
             },
-            'selectors': self._playwright_config.selectors.data
+            'selectors': self._playwright_config.selectors.data,
+            'strict_validation': self._playwright_config.strict_validation
         }
         with open(self.playwright_config_path, 'w') as f:
             yaml.dump(playwright_dict, f, default_flow_style=False)

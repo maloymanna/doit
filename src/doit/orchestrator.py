@@ -118,6 +118,31 @@ class Orchestrator:
         # Send the prompt
         await bc.send_prompt(text, files=files)
 
+    async def switch_to_url(self, url: str):
+        """
+        Navigate to a URL and reload selectors for that domain.
+        Useful when switching between different LLM UIs.
+        """
+        bc = await self.ensure_browser()
+        await bc.navigate(url)
+        # wait_for_sso will be called by caller if needed
+
+    async def get_selector(self, key: str, url: str) -> Optional[str]:
+        """Get a selector for a specific URL without navigating."""
+        bc = await self.ensure_browser()
+        # Temporarily load selectors for URL
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc.replace('www.', '')
+        selector_file = bc.config.doit_dir / 'selectors' / f"{domain}.yaml"
+        
+        if selector_file.exists():
+            import yaml
+            with open(selector_file, 'r') as f:
+                data = yaml.safe_load(f)
+                return data.get('selectors', {}).get(key)
+        
+        return bc.sel(key)  # Fallback to default
+
     async def start_new_conversation(self):
         """
         Start a fresh conversation in the current session (clears current chat).

@@ -169,6 +169,25 @@ class BrowserController:
 
         return False
 
+    def _load_selectors_for_url(self, url: str):
+        """Load selectors specific to the current URL domain."""
+        from urllib.parse import urlparse
+        from pathlib import Path
+        
+        domain = urlparse(url).netloc.replace('www.', '')
+        selector_file = self.config.doit_dir / 'selectors' / f"{domain}.yaml"
+        
+        if selector_file.exists():
+            import yaml
+            with open(selector_file, 'r') as f:
+                data = yaml.safe_load(f)
+                custom_selectors = data.get('selectors', {})
+                # Merge with existing selectors (custom overrides defaults)
+                self.selectors.update(custom_selectors)
+                print(f"[BrowserController] Loaded selectors for {domain}")
+        else:
+            print(f"[BrowserController] No domain-specific selectors for {domain}, using defaults")
+
     async def navigate(self, url: str, wait_until="networkidle"):
         if not self.page:
             raise BrowserError("Session not open.")
@@ -177,6 +196,7 @@ class BrowserController:
             raise AllowlistError(f"URL not allowed: {url}")
 
         await self.page.goto(url, wait_until=wait_until)
+        self._load_selectors_for_url(url)
 
     # -----------------------------
     # SSO Login Helper (FIXED: properly indented as a method)

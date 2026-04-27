@@ -39,11 +39,7 @@ class Permissions:
         self._approval_callback: Optional[Callable] = None
     
     def set_approval_callback(self, callback: Callable[[str, str], bool]):
-        """
-        Set a callback function for asking user approval.
-        
-        The callback should take (operation: str, details: str) and return bool.
-        """
+        """Set a callback function for asking user approval."""
         self._approval_callback = callback
     
     # ========== Path Validation ==========
@@ -94,19 +90,23 @@ class Permissions:
         except PermissionError:
             return False
     
-    # ========== URL Allowlist ==========
-    
+    # ========== URL Allowlist (READ ONLY - Security Boundary) ==========
+    # The allowlist is set once during workspace initialization.
+    # It CANNOT be modified programmatically. Only the user may edit
+    # .doit/allowlist.txt directly.    
     def is_url_allowed(self, url: str) -> bool:
         """
         Check if URL is in allowlist.
         
+        Security: If allowlist is empty, block ALL URLs (fail closed).
         Supports wildcard patterns like:
-        - https://usegpt.myorg
+        - https://chatgpt.com
         - https://github.com/*
         - *://*.myorg/*
         """
+        # CRITICAL SECURITY: Empty allowlist means NO URLs allowed
         if not self.allowlist:
-            return True  # No restrictions if allowlist is empty
+            return False    # Block ALL
         
         parsed = urlparse(url)
         normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
@@ -126,11 +126,6 @@ class Permissions:
                     return True
         
         return False
-    
-    def add_to_allowlist(self, pattern: str):
-        """Add a URL pattern to the allowlist."""
-        if pattern not in self.allowlist:
-            self.allowlist.append(pattern)
     
     # ========== Autonomy Mode ==========
     
@@ -164,12 +159,12 @@ class Permissions:
         # Mode 1: Reads auto-approved, writes need approval
         if self.autonomy_mode == 1:
             if operation == 'read':
-                return True # Auto-approved
+                return True  # Auto-approved
             return self._ask_approval(operation, details)
         
         # Mode 2: Reads/writes auto-approved, destructive ops already handled
         if self.autonomy_mode == 2:
-            return True # Auto-approved for non-destructive
+            return True  # Auto-approved for non-destructive
         
         # Default to requiring approval
         return self._ask_approval(operation, details)
@@ -211,10 +206,7 @@ class Permissions:
     
     @classmethod
     def non_interactive(cls, workspace_root: Path, autonomy_mode: int = 0) -> 'Permissions':
-        """
-        Create permissions instance for non-interactive mode.
-        Returns auto-approvals for all operations (for testing).
-        """
+        """Create permissions instance for non-interactive mode (auto-approve)."""
         perms = cls(workspace_root, autonomy_mode)
         # Override approval to auto-approve
         perms._approval_callback = lambda op, details: True

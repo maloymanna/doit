@@ -73,17 +73,51 @@ class TestPathValidation:
 
 
 class TestURLAllowlist:
-    """Test URL allowlist functionality."""
+    """Test URL allowlist functionality - SECURITY: Empty = block all."""
+
+    def test_allowlist_cannot_be_modified_programmatically(self, temp_workspace):
+        """Security test: Allowlist should be read-only, no programmatic modification."""
+        # Create allowlist file
+        doit_dir = temp_workspace / '.doit'
+        doit_dir.mkdir()
+        allowlist_file = doit_dir / 'allowlist.txt'
+        allowlist_file.write_text("https://chatgpt.com\n")
+        
+        # Load permissions with the allowlist
+        perms = Permissions(temp_workspace, allowlist=["https://chatgpt.com"])
+        
+        # Attempt to modify allowlist through permissions object
+        # There should be NO method to add/remove/modify allowlist entries
+        
+        # Verify no method exists
+        assert not hasattr(perms, 'add_to_allowlist'), "Security violation: add_to_allowlist method exists!"
+        assert not hasattr(perms, 'remove_from_allowlist'), "Security violation: remove_from_allowlist method exists!"
+        assert not hasattr(perms, 'modify_allowlist'), "Security violation: modify_allowlist method exists!"
+        
+        # Verify allowlist remains unchanged
+        assert perms.is_url_allowed("https://chatgpt.com") is True
+        assert perms.is_url_allowed("https://evil.com") is False
+        
+        # Verify the actual file wasn't modified (it shouldn't be, since no methods exist)
+        original_content = allowlist_file.read_text()
+        assert "https://chatgpt.com" in original_content
+        assert "evil.com" not in original_content    
     
-    def test_empty_allowlist_allows_all(self, temp_workspace):
-        """Empty allowlist should allow all URLs."""
+    def test_empty_allowlist_blocks_all(self, temp_workspace):
+        """SECURITY: Empty allowlist should block ALL URLs (fail closed)."""
         perms = Permissions(temp_workspace, allowlist=[])
-        assert perms.is_url_allowed("https://any-site.com") is True
+        
+        # Test various URLs - ALL should be blocked
+        assert perms.is_url_allowed("https://chatgpt.com") is False
+        assert perms.is_url_allowed("https://github.com") is False
+        assert perms.is_url_allowed("https://any-site.com") is False
+        assert perms.is_url_allowed("http://localhost:3000") is False
+        assert perms.is_url_allowed("https://www.google.com") is False
     
     def test_exact_match_allowed(self, temp_workspace):
         """Should allow exact URL matches."""
-        perms = Permissions(temp_workspace, allowlist=["https://usegpt.myorg"])
-        assert perms.is_url_allowed("https://usegpt.myorg") is True
+        perms = Permissions(temp_workspace, allowlist=["https://chatgpt.com"])
+        assert perms.is_url_allowed("https://chatgpt.com") is True
         assert perms.is_url_allowed("https://other-site.com") is False
     
     def test_wildcard_match(self, temp_workspace):
@@ -92,11 +126,11 @@ class TestURLAllowlist:
         assert perms.is_url_allowed("https://usegpt.myorg/chat") is True
         assert perms.is_url_allowed("https://other.com") is False
     
-    def test_add_to_allowlist(self, temp_workspace):
-        """Should allow adding new patterns."""
-        perms = Permissions(temp_workspace, allowlist=[])
-        perms.add_to_allowlist("https://newsite.com")
-        assert perms.is_url_allowed("https://newsite.com") is True
+    # def test_add_to_allowlist(self, temp_workspace):
+    #     """Should allow adding new patterns."""
+    #     perms = Permissions(temp_workspace, allowlist=[])
+    #     perms.add_to_allowlist("https://newsite.com")
+    #     assert perms.is_url_allowed("https://newsite.com") is True
 
 
 class TestAutonomyModes:

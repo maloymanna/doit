@@ -251,6 +251,20 @@ class Config:
         
         # Load configurations
         self.load()
+
+    def get_selectors_for_url(self, url: str) -> dict:
+        """Load selectors for a specific URL domain. Returns empty dict if not found."""
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc.replace('www.', '')
+        selector_file = self.doit_dir / 'selectors' / f"{domain}.yaml"
+        if selector_file.exists():
+            import yaml
+            with open(selector_file) as f:
+                data = yaml.safe_load(f)
+                return data.get('selectors', {})
+        # No fallback - return empty dict. User must create selector file.
+        print(f"⚠️ No selector file found for domain '{domain}'. Please create {selector_file}")
+        return {}        
     
     def load(self) -> None:
         """Load all configurations from workspace."""
@@ -260,7 +274,10 @@ class Config:
                 self._config_data = yaml.safe_load(f)
         else:
             self._config_data = {}
-        
+
+        # CRITICAL: Always set workspace_root in config data
+        self._config_data['workspace_root'] = str(self.workspace_root)
+
         # Load playwright config
         if self.playwright_config_path.exists():
             with open(self.playwright_config_path, 'r') as f:

@@ -1,4 +1,4 @@
-# src/doit/core/agent_orchestrator.py [MOD v1.2]
+# src/doit/core/agent_orchestrator.py [MOD v2]
 import uuid
 import logging
 from pathlib import Path
@@ -15,6 +15,7 @@ class AgentOrchestrator:
                  workspace_dir: Path,
                  llm_client: Optional[Callable[[str], str]] = None,
                  action_dispatcher: Optional[Any] = None,
+                 page: Optional[Any] = None,  # NEW: Browser page context
                  prompt_builder: Optional[SingleLinePromptBuilder] = None,
                  validator: Optional[JSONValidator] = None):
         self.workspace = workspace_dir
@@ -23,12 +24,14 @@ class AgentOrchestrator:
         self.builder = prompt_builder or SingleLinePromptBuilder()
         self.validator = validator or JSONValidator()
         
-        # Deferred import + stub fallback for action_dispatcher
+        # Wire Dispatcher with Page context
         if action_dispatcher is None:
             from .action_dispatcher import ActionDispatcher
-            self.dispatcher = ActionDispatcher(workspace_dir)
+            self.dispatcher = ActionDispatcher(workspace_dir, page=page)
         else:
             self.dispatcher = action_dispatcher
+            if hasattr(self.dispatcher, 'page') and page:
+                self.dispatcher.page = page
 
         # Default schema for next-action validation
         self.next_action_schema = {
@@ -56,23 +59,20 @@ class AgentOrchestrator:
         current_step = 0
 
         while current_step < max_steps:
-            # Build context
             history = self.state_mgr.get_recent_context(goal_id, limit=5)
             prompt = self.builder.build_next_step_prompt(goal_id, current_step, last_result, history)
             
-            # Audit
             self.state_mgr.log_audit(goal_id, "prompt_sent", prompt, "")
 
-            # LLM Call (mock if not provided)
+            # LLM Call
             if self.llm is None:
                 # Mock response for testing
-                raw_response = '{"tool_name": "stub_tool", "parameters": {}, "description": "test", "goal_status": "completed", "rationale": "mock"}'
+                raw_response = '{"tool_name": "file_write", "parameters": {"path": "test_phase2.txt", "content": "Phase2 works!"}, "description": "Test", "goal_status": "completed", "rationale": "mock"}'
             else:
                 raw_response = self.llm(prompt)
             
             self.state_mgr.log_audit(goal_id, "llm_response", prompt, raw_response[:200])
 
-            # Validate JSON
             try:
                 action = self.validator.parse_and_validate(raw_response, self.next_action_schema)
             except ValidationError as e:
@@ -81,7 +81,6 @@ class AgentOrchestrator:
                 last_result = f"PARSE_ERROR: {e.message}"
                 continue
 
-            # Dispatch
             logger.info(f"[ORC] Step {current_step} -> Tool: {action['tool_name']}")
             try:
                 result = self.dispatcher.dispatch(action)
@@ -95,7 +94,6 @@ class AgentOrchestrator:
 
             if goal_status in ("completed", "blocked", "requires_user_confirmation"):
                 self.state_mgr.update_goal_status(goal_id, goal_status)
-                logger.info(f"[ORC] Goal {goal_id} status: {goal_status}")
                 return {"goal_id": goal_id, "status": goal_status, "final_result": last_result}
 
             current_step += 1

@@ -1,11 +1,19 @@
-# src/doit/core/action_dispatcher.py [MOD v2]
+# src/doit/core/action_dispatcher.py [MOD v2.2]
 from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
 from .tool_registry import ToolRegistry
 from .security_enforcer import SecurityEnforcer
-from ..plugins import files as file_plugins
-from ..plugins import browser_ops as browser_plugins
+
+# Direct module imports bypass Windows __init__.py namespace resolution quirks
+from doit.plugins.files import (
+    file_read, FILE_READ_SCHEMA,
+    file_write, FILE_WRITE_SCHEMA
+)
+from doit.plugins.browser_ops import (
+    browser_navigate, NAVIGATE_SCHEMA,
+    browser_scrape, SCRAPE_SCHEMA
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +27,12 @@ class ActionDispatcher:
 
     def _register_tools(self):
         # File Tools
-        self.registry.register("file_read", "Reads text content from a local file. Truncates output.", file_plugins.FILE_READ_SCHEMA, file_plugins.file_read)
-        self.registry.register("file_write", "Writes text content to a local file. Creates dirs.", file_plugins.FILE_WRITE_SCHEMA, file_plugins.file_write)
+        self.registry.register("file_read", "Reads text content from a local file. Truncates output.", FILE_READ_SCHEMA, file_read)
+        self.registry.register("file_write", "Writes text content to a local file. Creates dirs.", FILE_WRITE_SCHEMA, file_write)
         
         # Browser Tools
-        self.registry.register("browser_navigate", "Opens URL in current tab. Waits for load.", browser_plugins.NAVIGATE_SCHEMA, browser_plugins.browser_navigate)
-        self.registry.register("browser_scrape", "Extracts text/attr from page or selector.", browser_plugins.SCRAPE_SCHEMA, browser_plugins.browser_scrape)
+        self.registry.register("browser_navigate", "Opens URL in current tab. Waits for load.", NAVIGATE_SCHEMA, browser_navigate)
+        self.registry.register("browser_scrape", "Extracts text/attr from page or selector.", SCRAPE_SCHEMA, browser_scrape)
 
     def dispatch(self, action: Dict[str, Any]) -> Dict[str, Any]:
         tool_name = action.get("tool_name")
@@ -45,7 +53,6 @@ class ActionDispatcher:
 
         # 3. Execution
         try:
-            # Pass page context to handlers
             context = {"page": self.page}
             return self.registry.execute(tool_name, params, **context)
         except Exception as e:

@@ -105,18 +105,52 @@ async def test_browser_launch():
         print("   └" + "─" * 56 + "┘")
         input("\n   Press Enter AFTER you've successfully logged in...")
         
+        # After SSO, wait longer for page to fully load
+        print("\n5. Waiting for page to fully load after SSO...")
+        await asyncio.sleep(5)  # Give extra time for redirects
+
         # Check if we can detect the prompt box
         bc = orch.browser
         prompt_selector = bc.sel('prompt_input')
+
         if prompt_selector:
-            print(f"\n5. Checking prompt input box...")
+            print(f"\n6. Checking prompt input box...")
             try:
-                await bc.page.wait_for_selector(prompt_selector, timeout=5000)
-                print(f"   ✓ Prompt box detected: {prompt_selector}")
+                # Try multiple strategies to find the element
+                print(f"   Looking for: {prompt_selector}")
+                
+                # Strategy 1: Wait for selector with longer timeout
+                await bc.page.wait_for_selector(prompt_selector, timeout=15000, state="visible")
+                print(f"   ✓ Prompt box detected via selector")
+                
+                # Strategy 2: Try to focus (proves it's interactive)
+                await bc.page.focus(prompt_selector)
+                print(f"   ✓ Can focus on prompt box")
+                
+                # Strategy 3: Try to type
+                await bc.page.fill(prompt_selector, "Test")
+                print(f"   ✓ Can type in prompt box")
+
             except Exception as e:
                 print(f"   ⚠ Could not detect prompt box: {e}")
+
+                # Debug: Print page title and URL
+                print(f"\n   Debug info:")
+                print(f"   Page title: {await bc.page.title()}")
+                print(f"   Current URL: {bc.page.url}")
+                
+                # Debug: Try to find any textarea
+                textareas = await bc.page.query_selector_all("textarea")
+                print(f"   Number of textareas found: {len(textareas)}")
+                
+                if textareas:
+                    print("   First textarea attributes:")
+                    for textarea in textareas[:1]:
+                        attrs = await textarea.get_attribute("data-testid")
+                        print(f"     data-testid: {attrs}")
         else:
             print(f"\n⚠️ No 'prompt_input' selector configured for {domain}")
+            print(f"   Expected in: .doit/selectors/{domain}.yaml")
         
         print(f"\n✅ Browser launched successfully!")
         print(f"\nBrowser will stay open for {KEEP_OPEN_SECONDS} seconds...")

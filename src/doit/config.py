@@ -253,18 +253,20 @@ class Config:
         self.load()
 
     def get_selectors_for_url(self, url: str) -> dict:
-        """Load selectors for a specific URL domain. Returns empty dict if not found."""
         from urllib.parse import urlparse
-        domain = urlparse(url).netloc.replace('www.', '')
+        domain = urlparse(url).netloc   # keep full domain, including www
         selector_file = self.doit_dir / 'selectors' / f"{domain}.yaml"
-        if selector_file.exists():
-            import yaml
-            with open(selector_file) as f:
-                data = yaml.safe_load(f)
-                return data.get('selectors', {})
-        # No fallback - return empty dict. User must create selector file.
-        print(f"⚠️ No selector file found for domain '{domain}'. Please create {selector_file}")
-        return {}        
+        print(f"[LOAD] Looking for {selector_file}")
+        if not selector_file.exists():
+            print(f"[LOAD] File not found")
+            return {}
+        import yaml
+        with open(selector_file, 'r') as f:
+            data = yaml.safe_load(f)
+            print(f"[LOAD] YAML keys: {list(data.keys()) if data else 'None'}")
+            selectors = data.get('selectors', {}) if data else {}
+            print(f"[LOAD] Selector count: {len(selectors)}")
+            return selectors      
     
     def load(self) -> None:
         """Load all configurations from workspace."""
@@ -344,29 +346,6 @@ class Config:
             if value is None:
                 return default
         return value
-
-    def get_selectors_for_url(self, url: str) -> Dict[str, str]:
-        """
-        Load selectors specific to a URL domain.
-        
-        Looks for: .doit/selectors/{domain}.yaml
-        Falls back to: .doit/playwright_config.yaml selectors section
-        """
-        from urllib.parse import urlparse
-        
-        parsed = urlparse(url)
-        domain = parsed.netloc.replace('www.', '')
-        
-        # Try domain-specific selector file
-        selector_file = self.doit_dir / 'selectors' / f"{domain}.yaml"
-        
-        if selector_file.exists():
-            with open(selector_file, 'r') as f:
-                selector_config = yaml.safe_load(f)
-                return selector_config.get('selectors', {})
-        
-        # Fallback to main playwright config
-        return self.playwright.selectors.data
     
     def get_workflow_hints(self, url: str) -> Dict[str, Any]:
         """Get workflow hints for a specific URL."""
@@ -404,3 +383,8 @@ class Config:
         }
         with open(self.playwright_config_path, 'w') as f:
             yaml.dump(playwright_dict, f, default_flow_style=False)
+
+# At the bottom of config.py, add:
+if __name__ == "__main__":
+    c = Config(Path("."))
+    print("Has get_selectors_for_url:", hasattr(c, "get_selectors_for_url"))            

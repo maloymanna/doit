@@ -69,8 +69,8 @@ config.yaml
 **/databases/
 
 # Task tracker and tests
-task-tracker.md
+*.md
 run_tests.sh
 htmlcov/
 .coverage
-tests-output.txt
+*.txt

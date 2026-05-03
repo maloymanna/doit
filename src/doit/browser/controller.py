@@ -149,35 +149,48 @@ class BrowserController:
 
         # workspace = Path(self.config.data["workspace_root"]).resolve()
         workspace = self.config.workspace_root
-        sessions = workspace / ".doit" / "sessions"
-        sessions.mkdir(parents=True, exist_ok=True)
+        sessions_dir = workspace / ".doit" / "sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
 
-        self.session_dir = sessions / project_name
+        self.session_dir = sessions_dir / project_name
         self.session_dir.mkdir(parents=True, exist_ok=True)
 
         try:
+
+            # Check if we already have a context (browser might be open)
+            if self.context:
+                print("[BrowserController] Closing existing context...")
+                await self.context.close()
+
+            # Launch persistent context - this reuses existing profile if directory exists                            
             self.context = await self.playwright.chromium.launch_persistent_context(
                 user_data_dir=str(self.session_dir),
                 channel="msedge",
                 headless=self.headless,
                 args=self.launch_args,
             )
+            print(f"[BrowserController] Persistent context launched with user data dir: {self.session_dir}")
+
         except Exception as exc:
             print(f"[open_chat_session] Failed to launch persistent context: {exc}")
             raise EdgeUnavailableError(
                 "Failed to launch Edge persistent context."
             ) from exc
 
+        # Get or create page
         pages = self.context.pages
         self.page = pages[0] if pages else await self.context.new_page()
         self.page.set_default_timeout(self.timeout_ms)
+
+        print(f"[BrowserController] Page ready, URL: {self.page.url}")
         return self.page
 
     async def close_session(self):
-        """Close browser and Playwright."""
+        """Close browser and Playwright, but preserve session files."""
         try:
             if self.context:
                 await self.context.close()
+                print("[BrowserController] Context closed (session preserved)")
         finally:
             if self.playwright:
                 await self.playwright.stop()
@@ -185,7 +198,8 @@ class BrowserController:
         self.context = None
         self.page = None
         self.playwright = None
-        self.session_dir = None
+        #  Do NOT delete self.session_dir - it contains the persistent profile
+        # self.session_dir = None
 
     # -----------------------------
     # Allowlist
@@ -276,23 +290,48 @@ class BrowserController:
 
     def _load_selectors_for_url(self, url: str):
         """Load selectors for the current URL domain."""
+        print(f"*** _load_selectors_for_url called with {url} ***")
         self.selectors = self.config.get_selectors_for_url(url)
+        print(f"*** Loaded {len(self.selectors)} selectors ***")
+        print(f"[DEBUG] Selectors loaded: {list(self.selectors.keys())}")
+        
+        # Also update the required keys mapping for backward compatibility
+        # Map 'send_enabled' to 'send_button_enabled' if needed
+        if 'send_button_enabled' in self.selectors and 'send_enabled' not in self.selectors:
+            self.selectors['send_enabled'] = self.selectors['send_button_enabled']
+            print(f"[DEBUG] Added 'send_enabled' alias for 'send_button_enabled'")
 
     async def navigate(self, url: str, wait_until="networkidle"):
+        """Navigate to URL and load domain-specific selectors."""
         if not self.page:
             raise BrowserError("Session not open.")
-
+        
         if not self._is_url_allowed(url):
             raise AllowlistError(f"URL not allowed: {url}")
-
-        # Set navigation timeout before going to the page
-        self.page.set_default_timeout(self.navigation_timeout_ms)
-
-        # Navigate with longer timeout for SSO        
+        
+        # Navigate
         await self.page.goto(url, wait_until=wait_until, timeout=self.navigation_timeout_ms)
+        
+        # Load domain-specific selectors
+        from urllib.parse import urlparse
         parsed = urlparse(url)
         self.current_domain = parsed.netloc.replace('www.', '')
         self._load_selectors_for_url(url)
+
+    async def wait_for_prompt_box(self, timeout_ms: int = 60000) -> bool:
+        """Wait for the prompt input box to become visible."""
+        selector = self.sel("prompt_input")
+        if not selector:
+            print("[wait_for_prompt_box] No prompt_input selector configured")
+            return False
+        
+        try:
+            await self.page.wait_for_selector(selector, timeout=timeout_ms)
+            print("[wait_for_prompt_box] Prompt box found")
+            return True
+        except:
+            print("[wait_for_prompt_box] Timeout waiting for prompt box")
+            return False
 
     # -----------------------------
     # SSO Login Helper (FIXED: properly indented as a method)

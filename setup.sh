@@ -113,7 +113,7 @@ $PYTHON_BIN -m pip install -e ".[dev,test]"
 # ------------------------------------------------------------
 echo "🌐 Installing Playwright browsers..."
 playwright install msedge
-playwright install chromium  # fallback
+# playwright install chromium  # Skip per user constraint
 
 # ------------------------------------------------------------
 # 7. Create sample workspace if not exists

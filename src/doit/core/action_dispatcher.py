@@ -1,114 +1,31 @@
-"""Action dispatcher for executing agent actions."""
+# src/doit/core/action_dispatcher.py [v1]
+# Minimal stub for Phase 1 compatibility. Full implementation in Phase 2.
+from typing import Dict, Any, Callable, Optional
+from pathlib import Path
 
-from typing import Dict, Any
-
-
-def execute_action(action: Dict[str, Any]) -> Dict[str, Any]:
+class ActionDispatcher:
     """
-    Execute an action and return the result.
-    
-    Args:
-        action: Action dictionary with 'action' and 'parameters' keys
-    
-    Returns:
-        Result dictionary with at least a 'status' field
+    Stub dispatcher for Phase 1. 
+    Full tool routing + security enforcement implemented in Phase 2.
     """
-    name = action.get("action")
-    params = action.get("parameters", {})
-    
-    if name == "NAVIGATE":
-        return _navigate(params)
-    
-    elif name == "EXTRACT_TEXT":
-        return _extract_text(params)
-    
-    elif name == "SEARCH":
-        return _search(params)
-    
-    elif name == "WRITE_EMAIL":
-        return _write_email(params)
-    
-    elif name == "ALERT_USER":
-        return _alert_user(params)
-    
-    elif name == "FINISH":
-        return _finish(params)
-    
-    else:
-        raise ValueError(f"Unknown action: {name}")
+    def __init__(self, workspace_dir: Path, tool_registry: Optional[Any] = None):
+        self.workspace = workspace_dir
+        self.tool_registry = tool_registry
+        self._handlers: Dict[str, Callable] = {}
 
+    def register_handler(self, tool_name: str, handler: Callable):
+        """Register a tool handler (used in Phase 2)."""
+        self._handlers[tool_name] = handler
 
-def _navigate(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Navigate to a URL."""
-    url = params.get("url", "")
-    if not url:
-        return {"status": "error", "error": "Missing 'url' parameter"}
-    
-    print(f"[NAVIGATE] Going to: {url}")
-    # TODO: Integrate with browser controller
-    return {"status": "navigated", "url": url}
-
-
-def _extract_text(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract text from current page."""
-    print("[EXTRACT_TEXT] Reading page content...")
-    # TODO: Integrate with browser controller
-    # For now, return dummy content
-    return {
-        "status": "extracted",
-        "page_content": "Sample page content. This will be replaced with actual browser extraction."
-    }
-
-
-def _search(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Search for information."""
-    query = params.get("query", "")
-    if not query:
-        return {"status": "error", "error": "Missing 'query' parameter"}
-    
-    print(f"[SEARCH] Query: {query}")
-    # TODO: Implement search (web search or internal)
-    return {
-        "status": "searched",
-        "query": query,
-        "results": "Search results would appear here."
-    }
-
-
-def _write_email(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Write/draft an email."""
-    to = params.get("to", "")
-    subject = params.get("subject", "")
-    body = params.get("body", "")
-    
-    print(f"[EMAIL] To: {to}")
-    print(f"Subject: {subject}")
-    print(f"Body:\n{body}")
-    
-    return {
-        "status": "email_drafted",
-        "to": to,
-        "subject": subject
-    }
-
-
-def _alert_user(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Send an alert to the user."""
-    message = params.get("message", "")
-    print(f"[ALERT] {message}")
-    
-    return {
-        "status": "alert_sent",
-        "message": message
-    }
-
-
-def _finish(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Mark the goal as complete."""
-    reason = params.get("reason", "Goal achieved")
-    print(f"[FINISH] {reason}")
-    
-    return {
-        "status": "done",
-        "reason": reason
-    }
+    def dispatch(self, action: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Stub dispatch: returns a placeholder result.
+        In Phase 2, this will route to tool_registry + security_enforcer.
+        """
+        tool_name = action.get("tool_name", "unknown")
+        return {
+            "status": "stub",
+            "output": f"[STUB] Tool '{tool_name}' not yet implemented. Phase 2 pending.",
+            "tool_name": tool_name,
+            "parameters": action.get("parameters", {})
+        }

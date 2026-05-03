@@ -34,8 +34,18 @@ dev = [
 [project.scripts]
 doit = "doit.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+# [tool.setuptools.packages.find]
+# where = ["src"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+# Explicit package list bypasses Windows auto-discovery quirks
+packages = [
+    "doit",
+    "doit.core",
+    "doit.browser",
+    "doit.plugins"
+]
 
 # pytest configuration
 [tool.pytest.ini_options]

@@ -451,8 +451,11 @@ class BrowserController:
     # -----------------------------
     # Prompt sending
     # -----------------------------
-    # Replace the ENTIRE send_prompt method in controller.py with this:
     async def send_prompt(self, text: str, files: Optional[List[str]] = None):
+        """
+        Send a prompt to the chat interface.
+        FIXED: Uses Playwright keyboard simulation to trigger React/Vue input events.
+        """
         if not self.page:
             raise BrowserError("Session not open.")
 
@@ -470,19 +473,22 @@ class BrowserController:
                 raise BrowserError("Missing required selector: send_button_enabled")
             return
 
-        # FIXED: Use page.evaluate with proper syntax instead of broken eval_on_selector
+        # ✅ FIXED: Native Playwright input simulation
+        # Clears existing text, types new text, and triggers JS framework events (input/change)
+        # This ensures the "Send" button actually gets enabled.
         try:
-            await self.page.evaluate(
-                "({selector, text}) => { const el = document.querySelector(selector); if(el) el.innerText = text; }",
-                {"selector": prompt_sel, "text": text}
-            )
-            print(f"✓ Prompt filled: {text[:50]}...")
+            await self.page.click(prompt_sel)
+            await self.page.keyboard.press("Control+A")
+            await self.page.keyboard.press("Delete")
+            await self.page.type(prompt_sel, text, delay=25)  # Simulates human typing
+            print(f"✓ Prompt filled via keyboard simulation")
         except Exception as e:
             print(f"⚠️ Failed to fill prompt: {e}")
             if self.strict_selectors:
                 raise
             return
 
+        # Upload files if needed
         if files:
             try:
                 await self.upload_file(files)
@@ -490,17 +496,30 @@ class BrowserController:
             except Exception as e:
                 print(f"⚠️ File upload failed: {e}")
 
+        # ⏳ Wait for web app JS to process input and enable the send button
+        await asyncio.sleep(1.5)
+
+        # Click send button
         try:
             btn = await self.page.wait_for_selector(send_enabled, timeout=self.timeout_ms)
             await btn.click()
             print("✓ Send button clicked")
         except Exception as e:
             print(f"⚠️ Failed to click send button: {e}")
+            # Debug fallback: check if alternative send selectors exist
+            try:
+                alts = await self.page.query_selector_all('button[type="submit"], button:has-text("Send"), .send-button')
+                print(f"   DEBUG: Found {len(alts)} alternative send buttons on page")
+            except:
+                pass
             if self.strict_selectors:
                 raise
             return
 
-        await self._wait(200)
+        # Wait for generation to start
+        await self._wait(500)
+
+        # Wait for completion using status detection
         timeout = self.timeout_ms * 6
         start_time = asyncio.get_event_loop().time()
         

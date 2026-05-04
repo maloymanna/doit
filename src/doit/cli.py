@@ -1,115 +1,87 @@
+# src/doit/cli.py [NEW v1]
 import argparse
-import asyncio
+import logging
+import sys
 from pathlib import Path
 
-from .orchestrator import Orchestrator
-from .browser.controller import (
-    EdgeUnavailableError,
-    AllowlistError,
-    BrowserError,
-)
+# Lazy imports to avoid blocking --help if playwright is missing
+def get_orchestrator():
+    from .core.agent_orchestrator import AgentOrchestrator
+    return AgentOrchestrator
 
+def get_browser_page():
+    """Returns Playwright page or None for dry-run."""
+    try:
+        from playwright.sync_api import sync_playwright
+        pw = sync_playwright().start()
+        browser = pw.chromium.launch(headless=True) # Use headless for CLI; override in config later
+        return browser.new_page()
+    except Exception as e:
+        logging.warning(f"Browser unavailable: {e}")
+        return None
+
+def setup_workspace(path: Path):
+    (path / ".doit").mkdir(parents=True, exist_ok=True)
+    (path / "projects").mkdir(exist_ok=True)
+    (path / "readonly_input").mkdir(exist_ok=True)
+    print(f"✅ Workspace initialized at {path}")
+
+def run_agent(args):
+    ws = Path(args.workspace).resolve()
+    if not ws.exists():
+        print(f"❌ Workspace not found: {ws}"); sys.exit(1)
+        
+    Orchestrator = get_orchestrator()
+    page = get_browser_page() if not args.dry_run else None
+    
+    orc = Orchestrator(
+        workspace_dir=ws,
+        llm_client=None,  # Replace with your actual Playwright LLM client function
+        page=page,
+        prompt_builder=None,
+        validator=None
+    )
+    
+    print(f"🤖 Starting agent (Dry-Run: {args.dry_run} | Autonomy: {args.autonomy})")
+    result = orc.run(args.goal, args.project, max_steps=args.max_steps)
+    print(f"\n🏁 Result: {result}")
 
 def main():
-    parser = argparse.ArgumentParser(prog="doit")
-    parser.add_argument("command", nargs="?", default="help")
-    parser.add_argument("--workspace", default=".")
-    parser.add_argument("--project", default="default")
-    parser.add_argument("--url", default=None)
-    parser.add_argument("--model", default=None)
-    parser.add_argument("--prompt", default="Hello from doit Milestone 2")
-    parser.add_argument("--files", nargs="*", default=None)
+    parser = argparse.ArgumentParser(prog="doit", description="Local agent with web-LLM intelligence")
+    parser.add_argument("--workspace", default=str(Path.home() / "doit-workspace"), help="Workspace path")
+    parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    
+    sub = parser.add_subparsers(dest="command", required=True)
+    
+    # init
+    init_p = sub.add_parser("init", help="Initialize workspace")
+    init_p.add_argument("--path", required=True, help="Directory to initialize")
+    
+    # agent
+    agent_p = sub.add_parser("agent", help="Run autonomous agent loop")
+    agent_p.add_argument("--goal", required=True, help="Natural language goal")
+    agent_p.add_argument("--project", required=True, help="Project name")
+    agent_p.add_argument("--max-steps", type=int, default=15, help="Max iterations")
+    agent_p.add_argument("--dry-run", action="store_true", help="Plan only, no execution")
+    agent_p.add_argument("--autonomy", type=int, choices=[0, 1, 2], default=0, help="Autonomy level")
+    agent_p.set_defaults(func=run_agent)
+    
+    # status
+    sub.add_parser("status", help="View agent state/logs")
+    
     args = parser.parse_args()
-
-    async def run():
-        orch = Orchestrator(Path(args.workspace))
-
-        # -----------------------------
-        # Milestone 2 test command
-        # -----------------------------
-        if args.command == "chat-test":
-            try:
-                # Ensure browser + session
-                await orch.open_chat_session(args.project)
-
-                if args.url:
-                    await orch.navigate(args.url)
-
-                # Start new chat
-                await orch.browser.click_new_chat()
-
-                # Select model (default or override)
-                await orch.browser.select_model(args.model)
-
-                # Send prompt
-                await orch.browser.send_prompt(args.prompt, files=args.files)
-
-                # Poll status
-                while True:
-                    status = await orch.get_status()
-                    if status in ("idle", "complete"):
-                        break
-                    await asyncio.sleep(0.2)
-
-                # Extract results
-                last_msg = await orch.get_last_response()
-                tokens = await orch.get_last_response_tokens()
-                full_conv = await orch.get_conversation_history()
-                copied = await orch.get_last_response_via_copy()
-
-                print("\n=== LAST ASSISTANT MESSAGE ===")
-                print(last_msg or "<none>")
-
-                print("\n=== LAST ASSISTANT TOKENS ===")
-                print(tokens)
-
-                print("\n=== FULL CONVERSATION ===")
-                for msg in full_conv:
-                    print(f"[{msg['role']}] {msg['text']}")
-
-                print("\n=== COPY VIA UI ===")
-                print(copied or "<none>")
-
-            except EdgeUnavailableError as e:
-                print("ERROR: Edge unavailable:", e)
-            except AllowlistError as e:
-                print("ERROR: URL blocked by allowlist:", e)
-            except BrowserError as e:
-                print("Browser error:", e)
-            except Exception as e:
-                print("Unexpected error:", e)
-
-            return
-
-        # -----------------------------
-        # Other built-in commands (examples)
-        # -----------------------------
-        if args.command == "init-workspace":
-            # Minimal example: orchestrator/config will create .doit
-            orch = Orchestrator(Path(args.workspace))
-            print("Initializing workspace:", args.workspace)
-            # Accessing config will create .doit and default files
-            _ = orch.config.data
-            print("Workspace initialized.")
-            return
-
-        if args.command == "list-plugins":
-            # Placeholder: plugin discovery will be implemented in Milestone 3
-            print("Installed plugins: (not implemented yet)")
-            return
-
-        if args.command == "summarize-file":
-            print("summarize-file not implemented in CLI stub.")
-            return
-
-        # -----------------------------
-        # Default: non‑browser commands
-        # -----------------------------
-        result = orch.run(args.command)
-        print(result)
-
-    asyncio.run(run())
-
+    
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
+    else:
+        logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
+        
+    if args.command == "init":
+        setup_workspace(Path(args.path))
+    elif args.command == "agent":
+        args.func(args)
+    else:
+        print(f"⚠️ Command '{args.command}' not implemented in Phase 3.")
 
 if __name__ == "__main__":
     main()

@@ -71,3 +71,8 @@ context/
 run_tests.sh
 htmlcov/
 .coverage
+
+# Runtime state databases (workspace-local)
+sqlite/
+*.db
+*.sqlite

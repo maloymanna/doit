@@ -1,10 +1,9 @@
-# src/doit/cli.py [NEW v1]
+# src/doit/cli.py [MOD v1.1]
 import argparse
 import logging
 import sys
 from pathlib import Path
 
-# Lazy imports to avoid blocking --help if playwright is missing
 def get_orchestrator():
     from .core.agent_orchestrator import AgentOrchestrator
     return AgentOrchestrator
@@ -14,7 +13,8 @@ def get_browser_page():
     try:
         from playwright.sync_api import sync_playwright
         pw = sync_playwright().start()
-        browser = pw.chromium.launch(headless=True) # Use headless for CLI; override in config later
+        # Use headless=False for local dev; override in config later
+        browser = pw.chromium.launch(headless=False) 
         return browser.new_page()
     except Exception as e:
         logging.warning(f"Browser unavailable: {e}")
@@ -36,10 +36,12 @@ def run_agent(args):
     
     orc = Orchestrator(
         workspace_dir=ws,
-        llm_client=None,  # Replace with your actual Playwright LLM client function
+        llm_client=None,  # Wire your Playwright LLM client here later
         page=page,
         prompt_builder=None,
-        validator=None
+        validator=None,
+        autonomy_mode=args.autonomy,
+        dry_run=args.dry_run
     )
     
     print(f"🤖 Starting agent (Dry-Run: {args.dry_run} | Autonomy: {args.autonomy})")
@@ -48,7 +50,6 @@ def run_agent(args):
 
 def main():
     parser = argparse.ArgumentParser(prog="doit", description="Local agent with web-LLM intelligence")
-    parser.add_argument("--workspace", default=str(Path.home() / "doit-workspace"), help="Workspace path")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
     
     sub = parser.add_subparsers(dest="command", required=True)
@@ -59,6 +60,7 @@ def main():
     
     # agent
     agent_p = sub.add_parser("agent", help="Run autonomous agent loop")
+    agent_p.add_argument("--workspace", default=str(Path.home() / "doit-workspace"), help="Workspace path") # FIXED
     agent_p.add_argument("--goal", required=True, help="Natural language goal")
     agent_p.add_argument("--project", required=True, help="Project name")
     agent_p.add_argument("--max-steps", type=int, default=15, help="Max iterations")
@@ -67,7 +69,9 @@ def main():
     agent_p.set_defaults(func=run_agent)
     
     # status
-    sub.add_parser("status", help="View agent state/logs")
+    status_p = sub.add_parser("status", help="View agent state/logs")
+    status_p.add_argument("--workspace", default=str(Path.home() / "doit-workspace"), help="Workspace path")
+    status_p.set_defaults(func=lambda args: print("📊 Status command coming in Phase 4"))
     
     args = parser.parse_args()
     
@@ -76,12 +80,10 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
         
-    if args.command == "init":
-        setup_workspace(Path(args.path))
-    elif args.command == "agent":
+    if hasattr(args, 'func'):
         args.func(args)
     else:
-        print(f"⚠️ Command '{args.command}' not implemented in Phase 3.")
+        parser.print_help()
 
 if __name__ == "__main__":
     main()

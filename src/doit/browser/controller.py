@@ -451,39 +451,30 @@ class BrowserController:
     # -----------------------------
     # Prompt sending
     # -----------------------------
+    # Replace the ENTIRE send_prompt method in controller.py with this:
     async def send_prompt(self, text: str, files: Optional[List[str]] = None):
-        """
-        Send a prompt to the chat interface.
-        
-        Critical selectors: prompt_input, send_button_enabled
-        If missing: prints warning but does NOT exit (for initial testing)
-        """
         if not self.page:
             raise BrowserError("Session not open.")
 
         prompt_sel = self.sel("prompt_input")
         if not prompt_sel:
             print(f"⚠️ CRITICAL WARNING: Selector 'prompt_input' missing for domain '{self.current_domain}'")
-            print(f"   Cannot send prompt. Please add to .doit/selectors/{self.current_domain}.yaml")
             if self.strict_selectors:
-                raise BrowserError(f"Missing required selector: prompt_input")
-            return  # Exit early without sending
+                raise BrowserError("Missing required selector: prompt_input")
+            return
 
         send_enabled = self.sel("send_button_enabled")
         if not send_enabled:
             print(f"⚠️ CRITICAL WARNING: Selector 'send_button_enabled' missing for domain '{self.current_domain}'")
-            print(f"   Cannot send prompt. Please add to .doit/selectors/{self.current_domain}.yaml")
             if self.strict_selectors:
-                raise BrowserError(f"Missing required selector: send_button_enabled")
-            return  # Exit early without sending
+                raise BrowserError("Missing required selector: send_button_enabled")
+            return
 
-        # Fill prompt
+        # FIXED: Use page.evaluate with proper syntax instead of broken eval_on_selector
         try:
-            await self.page.focus(prompt_sel)
-            await self.page.eval_on_selector(
-                prompt_sel,
-                "el => { el.innerText = arguments[0]; }",
-                text,
+            await self.page.evaluate(
+                "({selector, text}) => { const el = document.querySelector(selector); if(el) el.innerText = text; }",
+                {"selector": prompt_sel, "text": text}
             )
             print(f"✓ Prompt filled: {text[:50]}...")
         except Exception as e:
@@ -492,16 +483,13 @@ class BrowserController:
                 raise
             return
 
-        # Upload files if needed
         if files:
             try:
                 await self.upload_file(files)
                 print(f"✓ Uploaded {len(files)} file(s)")
             except Exception as e:
                 print(f"⚠️ File upload failed: {e}")
-                # Continue anyway - prompt may still send
 
-        # Click send button
         try:
             btn = await self.page.wait_for_selector(send_enabled, timeout=self.timeout_ms)
             await btn.click()
@@ -512,11 +500,8 @@ class BrowserController:
                 raise
             return
 
-        # Wait for generation to start
         await self._wait(200)
-
-        # Wait for completion using status detection
-        timeout = self.timeout_ms * 6  # 6x default timeout (e.g., 120 seconds)
+        timeout = self.timeout_ms * 6
         start_time = asyncio.get_event_loop().time()
         
         while (asyncio.get_event_loop().time() - start_time) < timeout / 1000:
@@ -527,7 +512,7 @@ class BrowserController:
                     break
             except Exception as e:
                 print(f"⚠️ Error checking status: {e}")
-            await self._wait(1000)  # Check every second
+            await self._wait(1000)
         else:
             print(f"⚠️ Timeout waiting for response after {timeout/1000} seconds")
 

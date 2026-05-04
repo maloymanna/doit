@@ -42,8 +42,6 @@ Thumbs.db
 # this prevents accidental commits.
 # -----------------------------
 .doit/
-sessions/
-plugins/
 autonomy_mode
 allowlist.txt
 playwright_config.yaml

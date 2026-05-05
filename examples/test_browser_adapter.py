@@ -6,9 +6,9 @@ from pathlib import Path
 from doit.orchestrator import Orchestrator
 from doit.core.browser_llm_adapter import async_llm_client
 
-WORKSPACE = Path.home() / "Documents/02-learn/dev/doit-workspace"
+WORKSPACE = Path("C:/Users/myuser/dev/doit-workspace").expanduser()
 URL = "https://www.usegpt.myorg"
-PROJECT = "auto-sso-test"
+PROJECT = "auto-sso-test"  # Same project as test_auto_sso.py
 
 
 async def test_browser_adapter():

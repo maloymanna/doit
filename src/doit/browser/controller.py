@@ -454,7 +454,9 @@ class BrowserController:
     async def send_prompt(self, text: str, files: Optional[List[str]] = None):
         """
         Send a prompt to the chat interface.
-        FIXED: Uses Playwright keyboard simulation to trigger React/Vue input events.
+        
+        Critical selectors: prompt_input, send_button_enabled
+        If missing: prints warning but does NOT exit (for initial testing)
         """
         if not self.page:
             raise BrowserError("Session not open.")
@@ -462,26 +464,28 @@ class BrowserController:
         prompt_sel = self.sel("prompt_input")
         if not prompt_sel:
             print(f"⚠️ CRITICAL WARNING: Selector 'prompt_input' missing for domain '{self.current_domain}'")
+            print(f"   Cannot send prompt. Please add to .doit/selectors/{self.current_domain}.yaml")
             if self.strict_selectors:
-                raise BrowserError("Missing required selector: prompt_input")
-            return
+                raise BrowserError(f"Missing required selector: prompt_input")
+            return  # Exit early without sending
 
         send_enabled = self.sel("send_button_enabled")
         if not send_enabled:
             print(f"⚠️ CRITICAL WARNING: Selector 'send_button_enabled' missing for domain '{self.current_domain}'")
+            print(f"   Cannot send prompt. Please add to .doit/selectors/{self.current_domain}.yaml")
             if self.strict_selectors:
-                raise BrowserError("Missing required selector: send_button_enabled")
-            return
+                raise BrowserError(f"Missing required selector: send_button_enabled")
+            return  # Exit early without sending
 
-        # ✅ FIXED: Native Playwright input simulation
-        # Clears existing text, types new text, and triggers JS framework events (input/change)
-        # This ensures the "Send" button actually gets enabled.
+        # Fill prompt
         try:
-            await self.page.click(prompt_sel)
-            await self.page.keyboard.press("Control+A")
-            await self.page.keyboard.press("Delete")
-            await self.page.type(prompt_sel, text, delay=25)  # Simulates human typing
-            print(f"✓ Prompt filled via keyboard simulation")
+            await self.page.focus(prompt_sel)
+            await self.page.eval_on_selector(
+                prompt_sel,
+                "el => { el.innerText = arguments[0]; }",
+                text,
+            )
+            print(f"✓ Prompt filled: {text[:50]}...")
         except Exception as e:
             print(f"⚠️ Failed to fill prompt: {e}")
             if self.strict_selectors:
@@ -495,9 +499,7 @@ class BrowserController:
                 print(f"✓ Uploaded {len(files)} file(s)")
             except Exception as e:
                 print(f"⚠️ File upload failed: {e}")
-
-        # ⏳ Wait for web app JS to process input and enable the send button
-        await asyncio.sleep(1.5)
+                # Continue anyway - prompt may still send
 
         # Click send button
         try:
@@ -506,21 +508,15 @@ class BrowserController:
             print("✓ Send button clicked")
         except Exception as e:
             print(f"⚠️ Failed to click send button: {e}")
-            # Debug fallback: check if alternative send selectors exist
-            try:
-                alts = await self.page.query_selector_all('button[type="submit"], button:has-text("Send"), .send-button')
-                print(f"   DEBUG: Found {len(alts)} alternative send buttons on page")
-            except:
-                pass
             if self.strict_selectors:
                 raise
             return
 
         # Wait for generation to start
-        await self._wait(500)
+        await self._wait(200)
 
         # Wait for completion using status detection
-        timeout = self.timeout_ms * 6
+        timeout = self.timeout_ms * 6  # 6x default timeout (e.g., 120 seconds)
         start_time = asyncio.get_event_loop().time()
         
         while (asyncio.get_event_loop().time() - start_time) < timeout / 1000:
@@ -531,7 +527,7 @@ class BrowserController:
                     break
             except Exception as e:
                 print(f"⚠️ Error checking status: {e}")
-            await self._wait(1000)
+            await self._wait(1000)  # Check every second
         else:
             print(f"⚠️ Timeout waiting for response after {timeout/1000} seconds")
 

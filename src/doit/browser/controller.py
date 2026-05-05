@@ -142,7 +142,8 @@ class BrowserController:
                 "Microsoft Edge (msedge) could not be launched. "
                 "This controller is Edge‑only."
             ) from exc
-
+      
+            
     async def open_chat_session(self, project_name: str) -> Page:
         """Open persistent Edge session for a project."""
         await self.ensure_running()
@@ -154,15 +155,17 @@ class BrowserController:
 
         self.session_dir = sessions_dir / project_name
         self.session_dir.mkdir(parents=True, exist_ok=True)
+        
+        print(f"[BrowserController] Using session directory: {self.session_dir}")
+        print(f"[BrowserController] Session exists: {self.session_dir.exists()}")
 
         try:
-
             # Check if we already have a context (browser might be open)
             if self.context:
                 print("[BrowserController] Closing existing context...")
                 await self.context.close()
-
-            # Launch persistent context - this reuses existing profile if directory exists                            
+            
+            # Launch persistent context - this reuses existing profile if directory exists 
             self.context = await self.playwright.chromium.launch_persistent_context(
                 user_data_dir=str(self.session_dir),
                 channel="msedge",
@@ -170,18 +173,18 @@ class BrowserController:
                 args=self.launch_args,
             )
             print(f"[BrowserController] Persistent context launched with user data dir: {self.session_dir}")
-
+            
         except Exception as exc:
-            print(f"[open_chat_session] Failed to launch persistent context: {exc}")
+            print(f"[BrowserController: open_chat_session] Failed to launch persistent context: {exc}")
             raise EdgeUnavailableError(
-                "Failed to launch Edge persistent context."
+                f"Failed to launch Edge persistent context. Session dir: {self.session_dir}"
             ) from exc
 
-        # Get or create page
+        # Get or create page 
         pages = self.context.pages
         self.page = pages[0] if pages else await self.context.new_page()
         self.page.set_default_timeout(self.timeout_ms)
-
+        
         print(f"[BrowserController] Page ready, URL: {self.page.url}")
         return self.page
 
@@ -198,8 +201,8 @@ class BrowserController:
         self.context = None
         self.page = None
         self.playwright = None
-        #  Do NOT delete self.session_dir - it contains the persistent profile
-        # self.session_dir = None
+        # Do NOT delete self.session_dir - it contains the persistent profile 
+        ### self.session_dir = None
 
     # -----------------------------
     # Allowlist
@@ -245,7 +248,7 @@ class BrowserController:
             'new_chat_button',
             'send_button_enabled',
             'prompt_input',
-            'message_container',
+            'assistant_message',
             'generating_indicator'
         ]
         
@@ -288,11 +291,30 @@ class BrowserController:
         fallbacks = common_fallbacks.get(key, [])
         return fallbacks[0] if fallbacks else None
 
+    def get_selectors_for_url(self, url: str) -> dict:
+        """Load selectors for a specific URL domain. Returns empty dict if not found."""
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc.replace('www.','')
+        selector_file = self.doit_dir / 'selectors' / f"{domain}.yaml"
+        
+        print(f"[DEBUG] Looking for selector file: {selector_file}")
+        print(f"[DEBUG] File exists: {selector_file.exists()}")
+
+        if selector_file.exists():
+            import yaml
+            with open(selector_file) as f:
+                data = yaml.safe_load(f)
+                selectors = data.get('selectors', {})
+                print(f"[DEBUG] Loaded selectors: {list(selectors.keys())}")
+                return selectors
+        
+        print(f"[DEBUG] No selector file found, returning empty dict")
+        return {}
+        
     def _load_selectors_for_url(self, url: str):
         """Load selectors for the current URL domain."""
-        print(f"*** _load_selectors_for_url called with {url} ***")
+        print(f"[DEBUG] Loading selectors for URL: {url}")
         self.selectors = self.config.get_selectors_for_url(url)
-        print(f"*** Loaded {len(self.selectors)} selectors ***")
         print(f"[DEBUG] Selectors loaded: {list(self.selectors.keys())}")
         
         # Also update the required keys mapping for backward compatibility
@@ -309,14 +331,12 @@ class BrowserController:
         if not self._is_url_allowed(url):
             raise AllowlistError(f"URL not allowed: {url}")
         
-        # Navigate
         await self.page.goto(url, wait_until=wait_until, timeout=self.navigation_timeout_ms)
         
-        # Load domain-specific selectors
         from urllib.parse import urlparse
         parsed = urlparse(url)
         self.current_domain = parsed.netloc.replace('www.', '')
-        self._load_selectors_for_url(url)
+        self._load_selectors_for_url(url)          
 
     async def wait_for_prompt_box(self, timeout_ms: int = 60000) -> bool:
         """Wait for the prompt input box to become visible."""
@@ -331,7 +351,7 @@ class BrowserController:
             return True
         except:
             print("[wait_for_prompt_box] Timeout waiting for prompt box")
-            return False
+            return False        
 
     # -----------------------------
     # SSO Login Helper (FIXED: properly indented as a method)
@@ -339,7 +359,7 @@ class BrowserController:
     async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
         """
         If an SSO/login page appears, wait for the user to complete manual login
-        and for navigation to the target_host (e.g. usegpt.myorg).
+        and for navigation to the target_host (e.g. securegpt.intraxa).
         """
         if not self.page:
             raise BrowserError("Session not open.")
@@ -480,11 +500,18 @@ class BrowserController:
         # Fill prompt
         try:
             await self.page.focus(prompt_sel)
-            await self.page.eval_on_selector(
-                prompt_sel,
-                "el => { el.innerText = arguments[0]; }",
-                text,
-            )
+            
+            # Clear existing content first (Ctrl+A + Delete)
+            await self.page.keyboard.press("Control+A")
+            await self.page.keyboard.press("Delete")
+            
+            # Type the text
+            await self.page.type(prompt_sel, text, delay=50)
+            # # # await self.page.eval_on_selector(
+                # # # prompt_sel,
+                # # # "el => { el.innerText = arguments[0]; }",
+                # # # text,
+            # # # )
             print(f"✓ Prompt filled: {text[:50]}...")
         except Exception as e:
             print(f"⚠️ Failed to fill prompt: {e}")
@@ -532,6 +559,45 @@ class BrowserController:
             print(f"⚠️ Timeout waiting for response after {timeout/1000} seconds")
 
     # -----------------------------
+    # Wait for completion of response 
+    # -----------------------------
+    async def wait_for_completion(self, timeout_ms: int = 120000):
+        """
+        Wait for the assistant to finish responding.
+        Monitors the model selector button for the 'pointer-events-none' class.
+        When that class is present, response is generating. When it disappears, response is complete.
+        """
+        model_sel = self.sel("model_selector_button")
+        if not model_sel:
+            print("[wait_for_completion] No model_selector_button selector")
+            await self._wait(5000)
+            return
+        
+        print("[wait_for_completion] Waiting for response generation to start and finish...")
+        
+        start_time = asyncio.get_event_loop().time()
+        generating_detected = False
+        check_interval = 0.5
+        
+        while (asyncio.get_event_loop().time() - start_time) * 1000 < timeout_ms:
+            button = await self.page.query_selector(model_sel)
+            if button:
+                # Check if button has 'pointer-events-none' class or disabled attribute
+                classes = await button.get_attribute("class") or ""
+                is_generating = "pointer-events-none" in classes
+                
+                if is_generating and not generating_detected:
+                    print("[wait_for_completion] Response generation started")
+                    generating_detected = True
+                elif not is_generating and generating_detected:
+                    print("[wait_for_completion] Response generation completed")
+                    await self._wait(1000)  # Extra buffer for final rendering
+                    return
+            await asyncio.sleep(check_interval)
+        
+        print("[wait_for_completion] Timeout waiting for completion")
+
+    # -----------------------------
     # File upload
     # -----------------------------
     async def upload_file(self, paths: List[str]):
@@ -577,38 +643,41 @@ class BrowserController:
     async def extract_last_assistant_message(self) -> Optional[str]:
         """
         Extract the last assistant message from the conversation.
-        
-        Critical selector: message_container or assistant_message
-        If missing: prints warning but returns None (does NOT exit)
+        Handles responses split across multiple token divs.
         """
-        # Try multiple possible selector keys for assistant messages
-        selector = self.sel("assistant_message") or self.sel("message_container")
-        
+        # Get the last assistant message container
+        selector = self.sel("assistant_message")  # div[data-testid^="completion-"]
         if not selector:
-            print(f"⚠️ WARNING: Neither 'assistant_message' nor 'message_container' selector configured")
-            print(f"   for domain '{self.current_domain}'. Cannot extract responses.")
-            print(f"   Please add to .doit/selectors/{self.current_domain}.yaml")
+            print("[extract_last_assistant_message] No selector for assistant_message")
             return None
         
-        try:
-            containers = await self.page.query_selector_all(selector)
-            if not containers:
-                print(f"⚠️ No assistant messages found on page")
-                return None
-            
-            # Get the last message
-            last_message = containers[-1]
-            text = await last_message.inner_text()
-            
-            if text and len(text.strip()) > 0:
-                return text.strip()
-            else:
-                print(f"⚠️ Assistant message found but empty")
-                return None
-                
-        except Exception as e:
-            print(f"⚠️ Failed to extract assistant message: {e}")
+        containers = await self.page.query_selector_all(selector)
+        if not containers:
+            print("[extract_last_assistant_message] No assistant messages found")
             return None
+        
+        # Get the last container
+        last_container = containers[-1]
+        
+        # Debug: Count token divs
+        token_divs = await last_container.query_selector_all("div[data-testid*='-token-']")
+        print(f"[DEBUG] Found {len(token_divs)} token divs")
+            
+        # # # # Find all token divs inside (div[data-testid^="completion-1-token-"])
+        # # # token_selector = f"{selector}-token-"
+        # # # token_divs = await last_container.query_selector_all(f"div[data-testid*='-token-']")
+        
+        if token_divs:
+            # Combine text from all token divs
+            full_text = ""
+            for i, token_div in enumerate(token_divs):
+                text = await token_div.inner_text()
+                print(f"[DEBUG] Token {i}: {text[:50]}...")
+                full_text += text + "\n" # Add newline for better separation
+            return full_text.strip()
+        else:
+            # Fallback: get all text from the container
+            return await last_container.inner_text()
 
     async def extract_all_messages(self) -> List[Dict[str, str]]:
         results = []

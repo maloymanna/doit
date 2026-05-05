@@ -1,8 +1,7 @@
-# src/doit/llm/web_llm_adapter.py [MOD v1.3]
+# src/doit/llm/web_llm_adapter.py [MOD v1.4]
 """
-Sync adapter wrapping your PROVEN v0 Orchestrator/Controller.
-Exactly mirrors test_round_trip.py flow.
-Manages a single persistent event loop to avoid Playwright context conflicts.
+Sync adapter wrapping your PROVEN test_round_trip.py flow.
+Exactly mirrors the working script with minimal changes for sync/async bridging.
 """
 import asyncio
 import logging
@@ -26,19 +25,18 @@ class WebLLMSyncAdapter:
         self._initialized = False
 
     def _ensure_loop(self):
-        """Create or return a persistent event loop."""
+        """Create or return a persistent event loop to avoid Playwright context poisoning."""
         if self._loop is None or self._loop.is_closed():
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
         return self._loop
 
     def send_prompt(self, prompt: str) -> str:
-        """Sync entry point. Delegates to async round-trip."""
         loop = self._ensure_loop()
         return loop.run_until_complete(self._async_round_trip(prompt))
 
     async def _async_round_trip(self, prompt: str) -> str:
-        # 1. Initialize browser ONCE
+        # 1. Initialize browser ONCE (persistent session)
         if not self._initialized:
             logger.info("[LLM] Initializing Orchestrator (persistent session)...")
             self._orch = Orchestrator(self.workspace)
@@ -53,39 +51,42 @@ class WebLLMSyncAdapter:
 
         bc = await self._orch.ensure_browser()
 
-        # 2. Wait for prompt box
-        ready = await bc.wait_for_prompt_box(timeout_ms=60000)
+        # 2. Wait for prompt box (EXACTLY like test_round_trip.py)
+        ready = await bc.wait_for_prompt_box(timeout_ms=120000)
         if not ready:
-            raise RuntimeError("Prompt box not found after 60s timeout")
+            raise RuntimeError("Prompt box not found after 120s timeout")
 
-        # 3. Exact test_round_trip.py flow (proven working)
+        # 3. Type prompt (PROVEN FLOW)
         prompt_sel = bc.sel("prompt_input")
         await bc.page.focus(prompt_sel)
         await bc.page.keyboard.press("Control+A")
         await bc.page.keyboard.press("Delete")
         await bc.page.type(prompt_sel, prompt, delay=50)
-        await asyncio.sleep(0.5)  # Let JS framework register input
+        await asyncio.sleep(0.5)
         logger.info("[LLM] ✓ Prompt typed")
 
-        # 4. Click Send
+        # 4. Click Send (PROVEN FLOW)
         send_sel = bc.sel("send_button_enabled")
         send_btn = await bc.page.wait_for_selector(send_sel, timeout=10000)
         await send_btn.click()
         logger.info("[LLM] ✓ Send clicked. Waiting for response...")
 
-        # 5. Wait for assistant message
-        assistant_sel = bc.sel("assistant_message") or bc.sel("message_container")
+        # 5. Wait for assistant message (EXACTLY like test_round_trip.py)
+        assistant_sel = bc.sel("assistant_message")
+        if not assistant_sel:
+            raise RuntimeError("Missing selector: 'assistant_message' in your config")
+            
         await bc.page.wait_for_selector(assistant_sel, timeout=120000)
 
-        # 6. Extract response
-        containers = await bc.page.query_selector_all(assistant_sel)
-        if not containers:
-            raise RuntimeError("No assistant messages found after generation")
-        
-        response = await containers[-1].inner_text()
+        # 6. Extract response (EXACTLY like test_round_trip.py)
+        messages = await bc.page.query_selector_all(assistant_sel)
+        if not messages:
+            raise RuntimeError("No assistant messages found on page")
+
+        response = await messages[-1].inner_text()
         if not response or len(response.strip()) == 0:
             raise RuntimeError("Extracted assistant message is empty")
-            
+
         logger.info("[LLM] ✓ Response extracted successfully")
         return response.strip()
 

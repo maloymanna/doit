@@ -60,6 +60,8 @@ class BrowserController:
         self.navigation_timeout_ms = pw_cfg.navigation_timeout_ms  # Should be 30000
         self.headless = pw_cfg.headless
         self.launch_args = pw_cfg.launch_args
+        self.viewport = pw_cfg.viewport      # ADDED
+        self.slow_mo = pw_cfg.slow_mo        # ADDED
         self.model_name = config.browser.default_model  # From config.yaml
 
         # Load selectors (will be overridden per URL)
@@ -171,8 +173,8 @@ class BrowserController:
                 channel="msedge",
                 headless=self.headless,
                 args=self.launch_args,
-                viewport=pw_cfg.viewport,        # ADDED
-                slow_mo=pw_cfg.slow_mo           # ADDED                
+                viewport=self.viewport,        # FIXED: uses instance attribute
+                slow_mo=self.slow_mo           # FIXED: uses instance attribute                
             )
             print(f"[BrowserController] Persistent context launched with user data dir: {self.session_dir}")
             

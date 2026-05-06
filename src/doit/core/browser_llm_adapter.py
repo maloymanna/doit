@@ -1,33 +1,26 @@
-# src/doit/core/browser_llm_adapter.py [NEW v1]
+# src/doit/core/browser_llm_adapter.py [MOD v1.1]
 import asyncio
 from typing import Optional
 from ..browser.controller import BrowserController
 
 async def async_llm_client(bc: BrowserController, prompt: str) -> Optional[str]:
     """
-    Proven round-trip: clear → type → send → wait → extract.
-    Exact logic from test_browser_adapter.py (verified on Win11).
+    Robust multi-turn round-trip.
+    Leverages bc.send_prompt() for proven typing/clicking/status-polling.
+    Avoids premature extraction race conditions on subsequent turns.
     """
-    prompt_sel = bc.sel("prompt_input")
-    send_sel = bc.sel("send_button_enabled")
-    assistant_sel = bc.sel("assistant_message") or bc.sel("message_container")
+    # 1. Send prompt & wait for generation to complete
+    # bc.send_prompt() already handles: focus -> clear -> type -> click -> status poll
+    await bc.send_prompt(prompt)
 
-    # Clear & Type (proven keyboard flow)
-    await bc.page.focus(prompt_sel)
-    await bc.page.keyboard.press("Control+A")
-    await bc.page.keyboard.press("Delete")
-    await bc.page.type(prompt_sel, prompt, delay=50)
-    await asyncio.sleep(0.5)  # Let JS framework register input
+    # 2. Small buffer for final DOM rendering/token flushing
+    await asyncio.sleep(0.5)
 
-    # Click Send
-    send_btn = await bc.page.wait_for_selector(send_sel, timeout=10000)
-    await send_btn.click()
+    # 3. Extract response
+    response = await bc.extract_last_assistant_message()
+    
+    # Fallback: if DOM extraction fails (e.g., shadow DOM or heavy JS framework), try UI copy
+    if not response:
+        response = await bc.copy_last_assistant_message_via_ui()
 
-    # Wait for response
-    await bc.page.wait_for_selector(assistant_sel, timeout=120000)
-
-    # Extract
-    messages = await bc.page.query_selector_all(assistant_sel)
-    if not messages:
-        return None
-    return (await messages[-1].inner_text()).strip()
+    return response

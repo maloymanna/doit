@@ -171,6 +171,8 @@ class BrowserController:
                 channel="msedge",
                 headless=self.headless,
                 args=self.launch_args,
+                viewport=pw_cfg.viewport,        # ADDED
+                slow_mo=pw_cfg.slow_mo           # ADDED                
             )
             print(f"[BrowserController] Persistent context launched with user data dir: {self.session_dir}")
             
@@ -482,6 +484,13 @@ class BrowserController:
             raise BrowserError("Session not open.")
 
         prompt_sel = self.sel("prompt_input")
+        send_enabled = self.sel("send_button_enabled")
+
+        print(f"[BC-DEBUG] prompt_input resolved to: '{prompt_sel}'")
+        print(f"[BC-DEBUG] send_button_enabled resolved to: '{send_enabled}'")
+        print(f"[BC-DEBUG] Current domain: {self.current_domain}")
+        print(f"[BC-DEBUG] Loaded selector keys: {list(self.selectors.keys())}")
+
         if not prompt_sel:
             print(f"⚠️ CRITICAL WARNING: Selector 'prompt_input' missing for domain '{self.current_domain}'")
             print(f"   Cannot send prompt. Please add to .doit/selectors/{self.current_domain}.yaml")
@@ -489,7 +498,7 @@ class BrowserController:
                 raise BrowserError(f"Missing required selector: prompt_input")
             return  # Exit early without sending
 
-        send_enabled = self.sel("send_button_enabled")
+        # send_enabled = self.sel("send_button_enabled")
         if not send_enabled:
             print(f"⚠️ CRITICAL WARNING: Selector 'send_button_enabled' missing for domain '{self.current_domain}'")
             print(f"   Cannot send prompt. Please add to .doit/selectors/{self.current_domain}.yaml")

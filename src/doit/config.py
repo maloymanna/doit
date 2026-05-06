@@ -256,6 +256,8 @@ class Config:
         from urllib.parse import urlparse
         domain = urlparse(url).netloc   # keep full domain, including www
         selector_file = self.doit_dir / 'selectors' / f"{domain}.yaml"
+        print(f"[CONFIG-DEBUG] Looking for: {selector_file}")
+        print(f"[CONFIG-DEBUG] File exists: {selector_file.exists()}")
         print(f"[LOAD] Looking for {selector_file}")
         if not selector_file.exists():
             print(f"[LOAD] File not found")

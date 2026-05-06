@@ -1,42 +1,54 @@
-# src/doit/core/browser_llm_adapter.py [MOD v1.2]
-"""
-Sync/Async bridge for LLM round-trip.
-EXACTLY mirrors test_round_trip.py / test_browser_adapter.py flow.
-Zero status-polling wrappers. Direct DOM interaction only.
-"""
+# src/doit/core/browser_llm_adapter.py [MOD v1.3]
 import asyncio
+import time
 from typing import Optional
 from ..browser.controller import BrowserController
 
 async def async_llm_client(bc: BrowserController, prompt: str) -> Optional[str]:
-    """
-    Proven round-trip: clear → type → send → wait → extract.
-    Restores the exact working sequence you verified on Win11.
-    """
-    # 1. Extract selectors (proven logic)
+    print(f"\n[ADAPTER] Starting round-trip at {time.strftime('%H:%M:%S')}")
+    
     prompt_sel = bc.sel("prompt_input")
     send_sel = bc.sel("send_button_enabled")
-    assistant_sel = bc.sel("assistant_message") or bc.sel("message_container")
+    
+    if not prompt_sel or not send_sel:
+        raise RuntimeError(f"Missing selectors: prompt_input='{prompt_sel}', send_button_enabled='{send_sel}'")
 
-    if not prompt_sel or not send_sel or not assistant_sel:
-        raise RuntimeError("Missing required selectors: prompt_input, send_button_enabled, or assistant_message/message_container")
-
-    # 2. Clear & Type (proven keyboard flow)
+    # 1. Clear & Type (proven keyboard flow)
     await bc.page.focus(prompt_sel)
     await bc.page.keyboard.press("Control+A")
     await bc.page.keyboard.press("Delete")
     await bc.page.type(prompt_sel, prompt, delay=50)
-    await asyncio.sleep(0.5)  # Let JS framework register input
+    await asyncio.sleep(0.5)
+    print(f"[ADAPTER] Prompt typed. Length: {len(prompt)} chars")
 
-    # 3. Click Send
+    # 2. Click Send
     send_btn = await bc.page.wait_for_selector(send_sel, timeout=10000)
     await send_btn.click()
+    print(f"[ADAPTER] Send clicked at {time.strftime('%H:%M:%S')}. Waiting for generation...")
 
-    # 4. Wait for response (explicit, proven)
-    await bc.page.wait_for_selector(assistant_sel, timeout=120000)
+    # 3. WAIT FOR COMPLETION (Critical for long responses)
+    # Uses your controller's proven UI state detection
+    await bc.wait_for_completion(timeout_ms=180000)
+    print(f"[ADAPTER] Generation marked complete at {time.strftime('%H:%M:%S')}")
 
-    # 5. Extract (proven)
-    messages = await bc.page.query_selector_all(assistant_sel)
-    if not messages:
-        return None
-    return (await messages[-1].inner_text()).strip()
+    # 4. MANUAL INSPECTION WINDOW (5 seconds)
+    print("[ADAPTER] ⏸️ PAUSED 5s. Check browser now: Is the full response visible?")
+    await asyncio.sleep(5)
+
+    # 5. Extract with verbose logging
+    print("[ADAPTER] Attempting extraction...")
+    response = await bc.extract_last_assistant_message()
+    
+    if response:
+        print(f"[ADAPTER] ✅ Extracted {len(response)} chars. First 50: '{response[:50]}'")
+    else:
+        print("[ADAPTER] ❌ Extraction returned None. Checking DOM manually...")
+        # Debug fallback: query the selector directly
+        asst_sel = bc.sel("assistant_message") or bc.sel("message_container")
+        if asst_sel:
+            count = len(await bc.page.query_selector_all(asst_sel))
+            print(f"[ADAPTER] DOM check: Found {count} container(s) for '{asst_sel}'")
+        else:
+            print("[ADAPTER] DOM check: No assistant/message selector configured")
+
+    return response

@@ -1,4 +1,4 @@
-# tests/test_pipeline.py [MOD v1.1]
+# tests/test_pipeline.py [MOD v1.2]
 import os
 import sys
 import tempfile
@@ -7,7 +7,6 @@ from pathlib import Path
 
 # Ensure src/ is importable
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 from doit.core.state_manager import SQLiteStateManager
 from doit.core.prompt_builder import SingleLinePromptBuilder
 from doit.core.json_validator import JSONValidator, ValidationError
@@ -28,14 +27,23 @@ def test_pipeline():
     builder = SingleLinePromptBuilder()
     builder.register_tool("file_write", "Writes to local path", {"path": "str"})
     builder.register_tool("browser_nav", "Opens URL in Edge", {"url": "str"})
-    prompt = builder.build_next_step_prompt("g1", 1, "Previous step OK.", [{"step_index": 0, "tool_name": "init", "status": "done", "result": "ready"}])
+    
+    # FIXED: Added "Test Goal Query" as the first argument
+    prompt = builder.build_next_step_prompt(
+        "Test Goal Query",  # goal_query
+        "g1",               # goal_id
+        1,                  # current_step
+        "Previous step OK.", # last_result
+        [{"step_index": 0, "tool_name": "init", "status": "done", "result": "ready"}] # context_history
+    )
+    
     assert "\n" not in prompt and "\r" not in prompt, "FAIL: Prompt contains newlines"
     assert "||SYS||" in prompt and "||SCHEMA||" in prompt
     print("✅ PromptBuilder OK (strictly single-line)")
 
     print("\n🔹 3. Testing JSON Validator...")
     validator = JSONValidator()
-    # FIXED: schema must explicitly define 'properties' when using additionalProperties: false
+    # FIXED: schema must explicitly define 'properties'
     schema = {
         "type": "object",
         "properties": {
@@ -45,12 +53,12 @@ def test_pipeline():
         "required": ["tool_name"],
         "additionalProperties": False
     }
-    
+
     # Markdown leak test
     raw = 'Sure! ```json\n{"tool_name": "file_write", "params": {}}\n```'
     res = validator.parse_and_validate(raw, schema)
     assert res["tool_name"] == "file_write"
-    
+
     # Malformed test
     try:
         validator.parse_and_validate('no json here', schema)

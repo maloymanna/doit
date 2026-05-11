@@ -1,4 +1,4 @@
-# src/doit/core/security_enforcer.py [NEW v1]
+# src/doit/core/security_enforcer.py [v1.1]
 import re
 from pathlib import Path
 from typing import Dict, Any, List
@@ -22,7 +22,7 @@ class SecurityEnforcer:
         params = action.get("parameters", {})
         path = params.get("path", params.get("file_path", ""))
         command = params.get("command", "")
-        
+
         # 1. Path Traversal Check (Hard Block)
         if path:
             try:
@@ -38,43 +38,40 @@ class SecurityEnforcer:
             if command and re.search(pattern, command, re.IGNORECASE):
                 return {
                     "decision": GateDecision.INTERVENTION_NEEDED,
-                    "reason": "Destructive command detected",
+                    "reason": f"Destructive command blocked: {command}",
                     "protocol": "3-choice"
                 }
-        
-        # 3. Autonomy Matrix Evaluation
+
+        # 3. Autonomy Matrix Evaluation (Context-rich reasons)
         if tool == "file_write":
             if path:
                 target = (workspace_root / path).resolve()
                 is_new = not target.exists()
                 if is_new:
-                    if autonomy_mode in [0, 1]: 
-                        return {"decision": GateDecision.CONFIRM_NEEDED, "reason": "Writing to new file path."}
+                    if autonomy_mode in [0, 1]:
+                        return {"decision": GateDecision.CONFIRM_NEEDED, "reason": f"Write new file: {target}"}
                 else:
-                    if autonomy_mode == 0: 
-                        return {"decision": GateDecision.CONFIRM_NEEDED, "reason": "Overwriting existing file."}
+                    if autonomy_mode == 0:
+                        return {"decision": GateDecision.CONFIRM_NEEDED, "reason": f"Overwrite existing file: {target}"}
             return {"decision": GateDecision.ALLOWED}
 
         elif tool in ["draft_email", "save_report"]:
             if autonomy_mode == 0:
-                return {"decision": GateDecision.CONFIRM_NEEDED, "reason": "Drafting/Reporting requires confirmation in strict mode."}
+                return {"decision": GateDecision.CONFIRM_NEEDED, "reason": f"{tool} operation requires confirmation"}
             return {"decision": GateDecision.ALLOWED}
 
         elif tool in ["send_email", "notify_slack"]:
             if autonomy_mode < 2:
-                return {"decision": GateDecision.BLOCKED, "reason": "External sends blocked in modes 0 & 1. Use draft_email instead."}
+                return {"decision": GateDecision.BLOCKED, "reason": "External sends blocked in modes 0 & 1. Use draft tools instead."}
             return {"decision": GateDecision.ALLOWED}
 
         elif tool == "bash_execute":
-            cmd_base = command.split()[0] if command else ""
-            is_whitelisted = cmd_base in (whitelist or [])
-            
             if autonomy_mode == 2:
                 return {"decision": GateDecision.ALLOWED}
-            elif autonomy_mode == 1 and is_whitelisted:
+            cmd_base = command.split()[0] if command else ""
+            is_whitelisted = cmd_base in (whitelist or [])
+            if autonomy_mode == 1 and is_whitelisted:
                 return {"decision": GateDecision.ALLOWED}
-            else:
-                return {"decision": GateDecision.CONFIRM_NEEDED, "reason": "Shell execution requires confirmation."}
+            return {"decision": GateDecision.CONFIRM_NEEDED, "reason": f"Execute shell command: {command}"}
 
-        # Default: Auto-allow safe/read-only tools
         return {"decision": GateDecision.ALLOWED}

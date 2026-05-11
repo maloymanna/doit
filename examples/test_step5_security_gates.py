@@ -15,7 +15,7 @@ from doit.core.action_dispatcher import ActionDispatcher
 # =============================================================================
 # ESTABLISHED CONFIGURATION PATTERN (matches CLI --workspace argument)
 # =============================================================================
-WORKSPACE = Path("~/Documents/02-learn/dev/doit-workspace")
+WORKSPACE = Path("~/Documents/02-learn/dev/doit-workspace").expanduser()
 URL = "https://www.usegpt.myorg"
 PROJECT = "auto-sso-test"
 # =============================================================================

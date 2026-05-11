@@ -1,5 +1,5 @@
-# src/doit/plugins/file_ops.py [NEW v1]
-"""File operation tools for the agent."""
+# src/doit/plugins/file_ops.py [v1.5]
+"""File operation tools for the agent - REAL EXECUTION."""
 from pathlib import Path
 from typing import Dict, Any
 
@@ -10,17 +10,6 @@ FILE_READ_SCHEMA = {
     "additionalProperties": False
 }
 
-def file_read(params: Dict[str, Any], workspace: Path, **ctx) -> Dict[str, Any]:
-    """Reads content from a local file path."""
-    try:
-        # Resolve relative to workspace or absolute
-        target = workspace / params["path"] if not Path(params["path"]).is_absolute() else Path(params["path"])
-        if not target.exists():
-            return {"status": "error", "output": f"File not found: {target}"}
-        return {"status": "ok", "output": target.read_text(encoding="utf-8")}
-    except Exception as e:
-        return {"status": "error", "output": str(e)}
-
 FILE_WRITE_SCHEMA = {
     "type": "object",
     "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
@@ -28,12 +17,34 @@ FILE_WRITE_SCHEMA = {
     "additionalProperties": False
 }
 
-def file_write(params: Dict[str, Any], workspace: Path, **ctx) -> Dict[str, Any]:
-    """Writes content to a local file path."""
+def file_read(params: Dict[str, Any], workspace: Path, **ctx) -> Dict[str, Any]:
     try:
-        target = workspace / params["path"] if not Path(params["path"]).is_absolute() else Path(params["path"])
+        target = params.get("path") or params.get("file_path")
+        if not target: return {"status": "error", "output": "Missing 'path' parameter"}
+        if not Path(target).is_absolute(): target = workspace / target
+        else: target = Path(target).resolve()
+        
+        ws = workspace.resolve()
+        if not str(target).startswith(str(ws)): return {"status": "error", "output": "Path outside workspace"}
+        if not target.exists(): return {"status": "error", "output": f"File not found: {target}"}
+        
+        content = target.read_text(encoding="utf-8")
+        return {"status": "ok", "output": content[:4000] + ("...[truncated]" if len(content) > 4000 else "")}
+    except Exception as e:
+        return {"status": "error", "output": str(e)}
+
+def file_write(params: Dict[str, Any], workspace: Path, **ctx) -> Dict[str, Any]:
+    try:
+        target = params.get("path") or params.get("file_path")
+        content = params.get("content")
+        if not target or content is None: return {"status": "error", "output": "Missing 'path' or 'content'"}
+        if not Path(target).is_absolute(): target = workspace / "projects" / target
+        else: target = Path(target).resolve()
+        
+        if not str(target).startswith(str(workspace.resolve())): return {"status": "error", "output": "Path outside workspace"}
+        
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(params["content"], encoding="utf-8")
-        return {"status": "ok", "output": f"Successfully wrote {len(params['content'])} chars to {target}"}
+        target.write_text(content, encoding="utf-8")
+        return {"status": "ok", "output": f"Written {len(content)} chars to {target.name}"}
     except Exception as e:
         return {"status": "error", "output": str(e)}

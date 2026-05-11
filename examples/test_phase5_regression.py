@@ -12,7 +12,6 @@ from doit.core.prompt_builder import SingleLinePromptBuilder
 
 # =============================================================================
 # ESTABLISHED CONFIGURATION PATTERN (matches CLI --workspace argument)
-# NOTE: Always use .expanduser() for paths containing ~ to ensure cross-platform resolution
 # =============================================================================
 WORKSPACE = Path("~/Documents/02-learn/dev/doit-workspace").expanduser()
 URL = "https://www.usegpt.myorg"
@@ -21,7 +20,7 @@ PROJECT = "auto-sso-test"
 
 WORKSPACE.mkdir(parents=True, exist_ok=True)
 
-def _stub_tool(params, workspace, **ctx):
+def _stub_tool(params, project_dir, **ctx):
     """Minimal stub that returns success for any tool call."""
     return {"status": "ok", "output": f"Stub executed: {params}"}
 
@@ -45,9 +44,14 @@ def test_tool_injection():
     assert "\n" not in prompt
 
 def test_security_gates():
-    dispatcher = ActionDispatcher(WORKSPACE, autonomy_mode=0)
-    dispatcher.register("file_read", lambda p, **k: {"status":"ok"})
-    dispatcher.register("file_write", lambda p, **k: {"status":"ok"})
+    # Create a dummy project dir for the test to match dispatcher signature
+    project_dir = WORKSPACE / "projects" / "reg_test_project"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Update constructor call to match ActionDispatcher v2.5 signature (workspace, project_dir)
+    dispatcher = ActionDispatcher(WORKSPACE, project_dir, autonomy_mode=0)
+    dispatcher.register("file_read", _stub_tool)
+    dispatcher.register("file_write", _stub_tool)
     
     with patch("builtins.input", return_value="y"):
         res = dispatcher.dispatch({"tool_name":"file_write","parameters":{"path":"new.txt","content":"x"}})

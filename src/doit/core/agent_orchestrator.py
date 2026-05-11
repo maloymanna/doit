@@ -1,4 +1,4 @@
-# src/doit/core/agent_orchestrator.py [v4.5]
+# src/doit/core/agent_orchestrator.py [v4.7]
 import uuid
 import logging
 from pathlib import Path
@@ -17,6 +17,7 @@ def request_intervention(params: Dict, **ctx) -> Dict:
 class AgentOrchestrator:
     def __init__(self, 
                  workspace_dir: Path,
+                 project: str,
                  llm_client: Optional[Callable[[str], str]] = None,
                  action_dispatcher: Optional[Any] = None,
                  prompt_builder: Optional[SingleLinePromptBuilder] = None,
@@ -24,26 +25,32 @@ class AgentOrchestrator:
                  autonomy_mode: int = 0,
                  whitelist: Optional[List[str]] = None):
         self.workspace = workspace_dir
+        self.project = project
+        # Project-scoped directory for all tool I/O
+        self.project_dir = workspace_dir / "projects" / project
+        self.project_dir.mkdir(parents=True, exist_ok=True)
+        
         self.llm = llm_client
         self.builder = prompt_builder or SingleLinePromptBuilder()
         self.validator = validator or JSONValidator()
         self.state_mgr = SQLiteStateManager(workspace_dir)
 
-        from ..plugins.file_ops import FILE_READ_SCHEMA, FILE_WRITE_SCHEMA, file_read, file_write
-        self.builder.register_tool("file_read", "Reads content from a local file path")
-        self.builder.register_tool("file_write", "Writes content to a local file")
+        # 1. UNCONDITIONALLY register core tools to builder (fixes ||TOOLS|| empty bug)
+        self.builder.register_tool("file_read", "Reads content from a file relative to project dir")
+        self.builder.register_tool("file_write", "Writes content to a file relative to project dir")
+        self.builder.register_tool("request_intervention", "Halts loop for user clarification")
 
+        # 2. Initialize dispatcher & UNCONDITIONALLY register tools to it
         if action_dispatcher is None:
-            self.dispatcher = ActionDispatcher(workspace_dir, autonomy_mode=autonomy_mode, whitelist=whitelist)
+            self.dispatcher = ActionDispatcher(workspace_dir, self.project_dir, autonomy_mode=autonomy_mode, whitelist=whitelist)
         else:
             self.dispatcher = action_dispatcher
 
+        from ..plugins.file_ops import file_read, file_write
         self.dispatcher.register("file_read", file_read)
         self.dispatcher.register("file_write", file_write)
-        self.builder.register_tool("request_intervention", "Halts loop for user clarification")
         self.dispatcher.register("request_intervention", request_intervention)
 
-        # Matches v2.0 prompt builder schema
         self.expected_schema = {
             "type": "object",
             "properties": {
@@ -55,12 +62,12 @@ class AgentOrchestrator:
             "additionalProperties": False
         }
 
-    def run(self, goal_query: str, project: str, max_steps: int = 5) -> dict:
+    def run(self, goal_query: str, max_steps: int = 5) -> dict:
         if not self.llm:
             raise RuntimeError("AgentOrchestrator requires an llm_client.")
 
         goal_id = f"goal_{uuid.uuid4().hex[:8]}"
-        self.state_mgr.create_goal(goal_id, project, goal_query, max_steps)
+        self.state_mgr.create_goal(goal_id, self.project, goal_query, max_steps)
         self.state_mgr.update_goal_status(goal_id, "in_progress")
 
         last_result = "None"

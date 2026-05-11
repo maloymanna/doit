@@ -1,12 +1,13 @@
-# src/doit/core/action_dispatcher.py [MOD v2.3]
+# src/doit/core/action_dispatcher.py [v2.5]
 import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from .security_enforcer import SecurityEnforcer, GateDecision
 
 class ActionDispatcher:
-    def __init__(self, workspace_dir: Path, autonomy_mode: int = 0, whitelist: Optional[List[str]] = None):
+    def __init__(self, workspace_dir: Path, project_dir: Path, autonomy_mode: int = 0, whitelist: Optional[List[str]] = None):
         self.workspace = workspace_dir
+        self.project_dir = project_dir
         self.autonomy = autonomy_mode
         self.whitelist = whitelist or []
         self.enforcer = SecurityEnforcer()
@@ -16,8 +17,8 @@ class ActionDispatcher:
         self._tools[name] = func
 
     def dispatch(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        # 1. Security Evaluation (Pre-Execution)
-        sec_result = self.enforcer.evaluate(action, self.autonomy, self.workspace, self.whitelist)
+        # Security gate evaluates against project_dir sandbox
+        sec_result = self.enforcer.evaluate(action, self.autonomy, self.project_dir, self.whitelist)
         decision = sec_result["decision"]
 
         if decision == GateDecision.BLOCKED:
@@ -31,12 +32,11 @@ class ActionDispatcher:
             if not self._confirm(f"🔒 {sec_result['reason']} Proceed? (y/n): "):
                 return {"status": "blocked", "output": "User declined action."}
 
-        # 2. Execution
         tool_name = action.get("tool_name")
         if tool_name in self._tools:
             try:
                 params = action.get("parameters", {})
-                return self._tools[tool_name](params, workspace=self.workspace)
+                return self._tools[tool_name](params, project_dir=self.project_dir)
             except Exception as e:
                 return {"status": "error", "output": f"Execution failed: {str(e)}"}
         return {"status": "error", "output": f"Tool '{tool_name}' not registered."}

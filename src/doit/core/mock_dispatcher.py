@@ -1,5 +1,6 @@
 # src/doit/core/mock_dispatcher.py [MOD v1.2]
 from typing import Dict, Any, List
+from doit.utils.session_logger import logger
 
 class MockActionDispatcher:
     def __init__(self):
@@ -11,7 +12,7 @@ class MockActionDispatcher:
         path = params.get("path", params.get("file_path", ""))
 
         self.execution_log.append({"tool": tool, "params": params})
-        print(f"🤖 [MOCK DISPATCH] Tool: {tool} | Params: {params}")
+        logger.__init__("🤖 Tool: %s | Params: %s", tool, params)
 
         # ✅ Context-aware mock responses to break the loop
         if tool == "file_read":

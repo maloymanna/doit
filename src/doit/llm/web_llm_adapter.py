@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 import warnings
+from doit.utils.session_logger import logger
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="asyncio")
 
@@ -44,8 +45,8 @@ class WebLLMSyncAdapter:
             await self._orch.navigate(self.url)
             
             # 🛑 MANUAL INTERVENTION WINDOW
-            print("\n⏳ [LLM] PAUSING 15 SECONDS. Manually click SKIP or log in if prompted.")
-            print("   Agent will resume automatically after pause...\n")
+            logger.info("\n⏳ [LLM] PAUSING 15 SECONDS. Manually click SKIP or log in if prompted.")
+            logger.info("   Agent will resume automatically after pause...\n")
             await asyncio.sleep(15)
             self._initialized = True
 

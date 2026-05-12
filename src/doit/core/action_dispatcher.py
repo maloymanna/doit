@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from .security_enforcer import SecurityEnforcer, GateDecision
+from doit.utils.session_logger import logger
 
 class ActionDispatcher:
     def __init__(self, workspace_dir: Path, project_dir: Path, autonomy_mode: int = 0, whitelist: Optional[List[str]] = None):
@@ -23,6 +24,8 @@ class ActionDispatcher:
 
         if decision == GateDecision.BLOCKED:
             print(f"\n🚫 BLOCKED: {sec_result['reason']}")
+            # Audit trail: structured log for session.log
+            logger.warning("Security gate blocked: %s", sec_result['reason'])
             return {"status": "error", "output": f"Security Gate Blocked: {sec_result['reason']}"}
 
         if decision == GateDecision.INTERVENTION_NEEDED:
@@ -63,7 +66,14 @@ class ActionDispatcher:
         except (EOFError, KeyboardInterrupt):
             choice = "1"
 
-        if choice == "1": return {"status": "error", "output": "Aborted by user."}
-        elif choice == "2": return {"status": "skipped", "output": "Skipped per user request."}
-        elif choice == "3": return {"status": "ok", "output": "Manually executed by user. Proceeding."}
+        if choice == "1": 
+            logger.info("User chose: Deny & Abort")  # Optional audit of choice
+            return {"status": "error", "output": "Aborted by user."}
+        elif choice == "2": 
+            logger.info("User chose: Deny & Continue")
+            return {"status": "skipped", "output": "Skipped per user request."}
+        elif choice == "3": 
+            logger.info("User chose: Manual execution confirmed")
+            return {"status": "ok", "output": "Manually executed by user. Proceeding."}
+        logger.warning("Invalid 3-choice input: %s", choice)
         return {"status": "blocked", "output": "Invalid choice."}

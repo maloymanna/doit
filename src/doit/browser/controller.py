@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from urllib.parse import urlparse
+from doit.utils.session_logger import logger
 
 from playwright.async_api import (
     async_playwright,
@@ -139,7 +140,7 @@ class BrowserController:
             )
             await ctx.close()
         except Exception as exc:
-            print(f"[ensure_running] Browser launch failed: {exc}")
+            logger.error("Browser launch failed: %s", exc, exc_info=False)
             raise EdgeUnavailableError(
                 "Microsoft Edge (msedge) could not be launched. "
                 "This controller is Edge‑only."
@@ -158,13 +159,13 @@ class BrowserController:
         self.session_dir = sessions_dir / project_name
         self.session_dir.mkdir(parents=True, exist_ok=True)
         
-        print(f"[BrowserController] Using session directory: {self.session_dir}")
-        print(f"[BrowserController] Session exists: {self.session_dir.exists()}")
+        logger.info("Using session directory: %s", self.session_dir)
+        logger.info("Session exists: %s", self.session_dir.exists())
 
         try:
             # Check if we already have a context (browser might be open)
             if self.context:
-                print("[BrowserController] Closing existing context...")
+                logger.info("Closing existing context...")
                 await self.context.close()
             
             # Launch persistent context - this reuses existing profile if directory exists 
@@ -176,10 +177,10 @@ class BrowserController:
                 viewport=self.viewport,        # FIXED: uses instance attribute
                 slow_mo=self.slow_mo           # FIXED: uses instance attribute                
             )
-            print(f"[BrowserController] Persistent context launched with user data dir: {self.session_dir}")
+            logger.info("Persistent context launched with user data dir: %s",self.session_dir)
             
         except Exception as exc:
-            print(f"[BrowserController: open_chat_session] Failed to launch persistent context: {exc}")
+            logger.error("Failed to launch persistent context: %s", exc, exc_info=False)
             raise EdgeUnavailableError(
                 f"Failed to launch Edge persistent context. Session dir: {self.session_dir}"
             ) from exc
@@ -189,7 +190,7 @@ class BrowserController:
         self.page = pages[0] if pages else await self.context.new_page()
         self.page.set_default_timeout(self.timeout_ms)
         
-        print(f"[BrowserController] Page ready, URL: {self.page.url}")
+        logger.info("Page ready, URL: %s", self.page.url)
         return self.page
 
     async def close_session(self):
@@ -197,7 +198,7 @@ class BrowserController:
         try:
             if self.context:
                 await self.context.close()
-                print("[BrowserController] Context closed (session preserved)")
+                logger.info("Context closed (session preserved)")
         finally:
             if self.playwright:
                 await self.playwright.stop()
@@ -262,7 +263,7 @@ class BrowserController:
                 missing.append(key)
         
         if missing:
-            print(f"[BrowserController] Warning: Missing selectors: {missing}")
+            logger.warning("Missing selectors: %s", missing)
         
         return missing
 
@@ -301,31 +302,31 @@ class BrowserController:
         domain = urlparse(url).netloc.replace('www.','')
         selector_file = self.doit_dir / 'selectors' / f"{domain}.yaml"
         
-        print(f"[DEBUG] Looking for selector file: {selector_file}")
-        print(f"[DEBUG] File exists: {selector_file.exists()}")
+        logger.debug("Looking for selector file: %s", selector_file)
+        logger.debug("File exists: %s", selector_file.exists())
 
         if selector_file.exists():
             import yaml
             with open(selector_file) as f:
                 data = yaml.safe_load(f)
                 selectors = data.get('selectors', {})
-                print(f"[DEBUG] Loaded selectors: {list(selectors.keys())}")
+                logger.debug("Loaded selectors: %s", list(selectors.keys()))
                 return selectors
         
-        print(f"[DEBUG] No selector file found, returning empty dict")
+        logger.debug("No selector file found, returning empty dict")
         return {}
         
     def _load_selectors_for_url(self, url: str):
         """Load selectors for the current URL domain."""
-        print(f"[DEBUG] Loading selectors for URL: {url}")
+        logger.debug("Loading selectors for URL: %s", url)
         self.selectors = self.config.get_selectors_for_url(url)
-        print(f"[DEBUG] Selectors loaded: {list(self.selectors.keys())}")
+        logger.debug("Selectors loaded: %s", list(self.selectors.keys()))
         
         # Also update the required keys mapping for backward compatibility
         # Map 'send_enabled' to 'send_button_enabled' if needed
         if 'send_button_enabled' in self.selectors and 'send_enabled' not in self.selectors:
             self.selectors['send_enabled'] = self.selectors['send_button_enabled']
-            print(f"[DEBUG] Added 'send_enabled' alias for 'send_button_enabled'")
+            logger.debug("Added 'send_enabled' alias for 'send_button_enabled'")
 
     async def navigate(self, url: str, wait_until="networkidle"):
         """Navigate to URL and load domain-specific selectors."""
@@ -346,15 +347,15 @@ class BrowserController:
         """Wait for the prompt input box to become visible."""
         selector = self.sel("prompt_input")
         if not selector:
-            print("[wait_for_prompt_box] No prompt_input selector configured")
+            logger.info("No prompt_input selector configured")
             return False
         
         try:
             await self.page.wait_for_selector(selector, timeout=timeout_ms)
-            print("[wait_for_prompt_box] Prompt box found")
+            logger.info("Prompt box found")
             return True
         except:
-            print("[wait_for_prompt_box] Timeout waiting for prompt box")
+            logger.info("Timeout waiting for prompt box")
             return False        
 
     # -----------------------------
@@ -488,10 +489,10 @@ class BrowserController:
         prompt_sel = self.sel("prompt_input")
         send_enabled = self.sel("send_button_enabled")
 
-        print(f"[BC-DEBUG] prompt_input resolved to: '{prompt_sel}'")
-        print(f"[BC-DEBUG] send_button_enabled resolved to: '{send_enabled}'")
-        print(f"[BC-DEBUG] Current domain: {self.current_domain}")
-        print(f"[BC-DEBUG] Loaded selector keys: {list(self.selectors.keys())}")
+        logger.debug("prompt_input resolved to: '%s'", prompt_sel)
+        logger.debug("send_button_enabled resolved to: '%s'", send_enabled)
+        logger.debug("Current domain: %s", self.current_domain)
+        logger.debug("Loaded selector keys: %s", list(self.selectors.keys()))
 
         if not prompt_sel:
             print(f"⚠️ CRITICAL WARNING: Selector 'prompt_input' missing for domain '{self.current_domain}'")
@@ -580,11 +581,11 @@ class BrowserController:
         """
         model_sel = self.sel("model_selector_button")
         if not model_sel:
-            print("[wait_for_completion] No model_selector_button selector")
+            logger.info("No model_selector_button selector")
             await self._wait(5000)
             return
         
-        print("[wait_for_completion] Waiting for response generation to start and finish...")
+        logger.info("Waiting for response generation to start and finish...")
         
         start_time = asyncio.get_event_loop().time()
         generating_detected = False
@@ -598,15 +599,15 @@ class BrowserController:
                 is_generating = "pointer-events-none" in classes
                 
                 if is_generating and not generating_detected:
-                    print("[wait_for_completion] Response generation started")
+                    logger.info("Response generation started")
                     generating_detected = True
                 elif not is_generating and generating_detected:
-                    print("[wait_for_completion] Response generation completed")
+                    logger.info("Response generation completed")
                     await self._wait(1000)  # Extra buffer for final rendering
                     return
             await asyncio.sleep(check_interval)
         
-        print("[wait_for_completion] Timeout waiting for completion")
+        logger.info("Timeout waiting for completion")
 
     # -----------------------------
     # File upload
@@ -659,12 +660,12 @@ class BrowserController:
         # Get the last assistant message container
         selector = self.sel("assistant_message")  # div[data-testid^="completion-"]
         if not selector:
-            print("[extract_last_assistant_message] No selector for assistant_message")
+            logger.info("No selector for assistant_message")
             return None
         
         containers = await self.page.query_selector_all(selector)
         if not containers:
-            print("[extract_last_assistant_message] No assistant messages found")
+            logger.info("No assistant messages found")
             return None
         
         # Get the last container
@@ -672,7 +673,7 @@ class BrowserController:
         
         # Debug: Count token divs
         token_divs = await last_container.query_selector_all("div[data-testid*='-token-']")
-        print(f"[DEBUG] Found {len(token_divs)} token divs")
+        logger.debug("Found %d token divs", len(token_divs))
             
         # # # # Find all token divs inside (div[data-testid^="completion-1-token-"])
         # # # token_selector = f"{selector}-token-"
@@ -683,7 +684,7 @@ class BrowserController:
             full_text = ""
             for i, token_div in enumerate(token_divs):
                 text = await token_div.inner_text()
-                print(f"[DEBUG] Token {i}: {text[:50]}...")
+                logger.debug("Token %d: %s...", i, text[:50])
                 full_text += text + "\n" # Add newline for better separation
             return full_text.strip()
         else:

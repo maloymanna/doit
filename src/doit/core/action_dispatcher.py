@@ -1,4 +1,4 @@
-# src/doit/core/action_dispatcher.py [v2.5]
+# src/doit/core/action_dispatcher.py [v2.6]
 import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
@@ -18,13 +18,15 @@ class ActionDispatcher:
         self._tools[name] = func
 
     def dispatch(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        # Security gate evaluates against project_dir sandbox
         sec_result = self.enforcer.evaluate(action, self.autonomy, self.project_dir, self.whitelist)
         decision = sec_result["decision"]
+        
+        # ✅ Trace security decision for audit/debugging
+        logger.debug("Security gate: tool=%s, mode=%d, decision=%s, reason=%s", 
+                     action.get("tool_name"), self.autonomy, decision.name, sec_result.get("reason", ""))
 
         if decision == GateDecision.BLOCKED:
             print(f"\n🚫 BLOCKED: {sec_result['reason']}")
-            # Audit trail: structured log for session.log
             logger.warning("Security gate blocked: %s", sec_result['reason'])
             return {"status": "error", "output": f"Security Gate Blocked: {sec_result['reason']}"}
 
@@ -53,9 +55,12 @@ class ActionDispatcher:
             return False
 
     def _handle_3_choice(self, action: Dict, sec_result: Dict) -> Dict:
+        cmd = action['parameters'].get('command', '')
+        logger.warning("3-choice safety protocol: %s %s", action['tool_name'], cmd)
+        
         print("\n" + "="*60)
         print("🚨 CRITICAL SAFETY GATE: Destructive command blocked")
-        print(f"Action: {action['tool_name']} {action['parameters'].get('command', '')}")
+        print(f"Action: {action['tool_name']} {cmd}")
         print(f"Risk: Irreversible data loss")
         print("\nChoose:")
         print("1. Deny & Abort Goal (status: blocked)")
@@ -67,7 +72,7 @@ class ActionDispatcher:
             choice = "1"
 
         if choice == "1": 
-            logger.info("User chose: Deny & Abort")  # Optional audit of choice
+            logger.info("User chose: Deny & Abort")
             return {"status": "error", "output": "Aborted by user."}
         elif choice == "2": 
             logger.info("User chose: Deny & Continue")

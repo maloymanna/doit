@@ -1,4 +1,4 @@
-# src/doit/utils/session_logger.py [v1.2]
+# src/doit/utils/session_logger.py [v1.3]
 import logging
 import sys
 import secrets
@@ -13,7 +13,6 @@ class SessionContext:
         self.log_file = log_file
 
 def _load_log_level() -> str:
-    """Safely read log level from ~/.doit/config.yaml. Fallback to INFO."""
     cfg_path = Path.home() / ".doit" / "config.yaml"
     if cfg_path.exists():
         try:
@@ -25,7 +24,6 @@ def _load_log_level() -> str:
     return "INFO"
 
 def init_session_logger(workspace_dir: Optional[Path] = None) -> SessionContext:
-    """Initialize centralized logger with console/file tee. Call once at startup."""
     level_str = _load_log_level()
     level = getattr(logging, level_str, logging.INFO)
 
@@ -33,7 +31,6 @@ def init_session_logger(workspace_dir: Optional[Path] = None) -> SessionContext:
     rand = secrets.token_hex(3)
     session_id = f"{ts}_{rand}"
     
-    # Resolve sessions directory: workspace/.doit/sessions/ or fallback to ~/.doit/sessions/
     if workspace_dir:
         base_dir = workspace_dir / ".doit" / "sessions"
     else:
@@ -46,7 +43,8 @@ def init_session_logger(workspace_dir: Optional[Path] = None) -> SessionContext:
     logger.propagate = False
     logger.setLevel(level)
     
-    fmt = "%(asctime)s [%(levelname)-5s] %(name)s | %(message)s"
+    # ✅ Added filename, function, line number for precise audit/debugging
+    fmt = "%(asctime)s [%(levelname)-5s] %(filename)s:%(funcName)s:%(lineno)d | %(message)s"
     formatter = logging.Formatter(fmt, datefmt="%H:%M:%S")
     
     console = logging.StreamHandler(sys.stdout)

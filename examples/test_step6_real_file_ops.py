@@ -10,6 +10,7 @@ from doit.orchestrator import Orchestrator
 from doit.core.agent_orchestrator import AgentOrchestrator
 from doit.core.browser_llm_adapter import async_llm_client
 from doit.utils.session_logger import init_session_logger, logger
+from doit.config import Config
 
 # =============================================================================
 # ESTABLISHED CONFIGURATION PATTERN
@@ -19,19 +20,18 @@ URL = "https://www.usegpt.myorg"
 PROJECT = "auto-sso-test"
 # =============================================================================
 
-def sync_llm_wrapper(bc, prompt: str) -> str:
+def sync_llm_wrapper(bc, prompt: str, completion_timeout_ms: int = 180000) -> str:
     loop = asyncio.get_event_loop()
     if loop.is_closed():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    return loop.run_until_complete(async_llm_client(bc, prompt))
+    return loop.run_until_complete(async_llm_client(bc, prompt, completion_timeout_ms))
 
 def test_step6():
     print("="*60)
     print("STEP 6: Real File Operations Test (Project-Scoped)")
     print("="*60)
-    # Audit trail (tees to session.log)
-    logger.info("STEP 6: Real File Operations Test (Project-Scoped)")
+    logger.info("Regression test started")
     logger.info("Workspace: %s", WORKSPACE)
     logger.info("URL: %s", URL)
     logger.info("Project: %s", PROJECT)
@@ -42,6 +42,8 @@ def test_step6():
     input_dir.mkdir(exist_ok=True)
     config_file = input_dir / "config.yaml"
     config_file.write_text("browser:\n  default_model: GPT-5.1\n  timeout_ms: 60000\nlogging:\n  level: INFO", encoding="utf-8")
+
+    output_file = proj_dir / "output" / "model_info.txt"
 
     orch = Orchestrator(WORKSPACE)
     loop = asyncio.new_event_loop()
@@ -56,12 +58,23 @@ def test_step6():
             print("❌ Chat interface not ready.")
             return
 
-        logger.info("Browser ready. Initializing agent...")
+        # Load autonomy mode and completion timeout from config.yaml
+        try:
+            cfg = Config(WORKSPACE)
+            autonomy_mode = cfg.autonomy.mode
+            completion_timeout_ms = cfg.browser.completion_timeout_ms
+            logger.info("Loaded autonomy_mode=%d, completion_timeout_ms=%d from config.yaml", autonomy_mode, completion_timeout_ms)
+        except Exception as e:
+            autonomy_mode = 0
+            completion_timeout_ms = 180000  # Safe fallback
+            logger.warning("Config load failed (%s), using defaults: autonomy_mode=0, completion_timeout_ms=%d", e, completion_timeout_ms)
+
+        logger.info("Initializing agent (autonomy_mode=%d)...", autonomy_mode)
         agent = AgentOrchestrator(
             workspace_dir=WORKSPACE,
             project=PROJECT,
-            llm_client=lambda p: sync_llm_wrapper(bc, p),
-            autonomy_mode=1
+            llm_client=lambda p: sync_llm_wrapper(bc, p, completion_timeout_ms),
+            autonomy_mode=autonomy_mode
         )
 
         goal = "Read 'input/config.yaml', find the 'default_model' value, and write only that value to 'output/model_info.txt'."
@@ -73,7 +86,6 @@ def test_step6():
         print(f"\n🏁 Final Result: {result['status']}")
         logger.info("Agent run finished with status: %s", result['status'])
         
-        output_file = proj_dir / "output" / "model_info.txt"
         if output_file.exists():
             content = output_file.read_text(encoding="utf-8").strip()
             print(f"📄 Output file content: '{content}'")
@@ -92,16 +104,22 @@ def test_step6():
         logger.error("Test step6 failed: %s", e, exc_info=False)
         import traceback; traceback.print_exc()
     finally:
-        if config_file.exists(): config_file.unlink()
-        logger.info("Cleaned up test config file")
-        
+        try:
+            if config_file.exists(): config_file.unlink()
+            logger.info("Cleaned up test config file")
+        except Exception as cleanup_err:
+            logger.warning("Cleanup warning: %s", cleanup_err)
+            
         print("\n🔒 Closing browser session...")
         logger.info("Closing browser session")
-        loop.run_until_complete(orch.close_browser())
+        try:
+            loop.run_until_complete(orch.close_browser())
+        except:
+            pass
         loop.close()
 
 if __name__ == "__main__":
-    ctx = init_session_logger(WORKSPACE)  # ✅ Pass workspace to route sessions correctly
+    ctx = init_session_logger(WORKSPACE)
     logger.info("Starting test_step6_real_file_ops")
     test_step6()
     logger.info("Test execution finished")

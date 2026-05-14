@@ -1,18 +1,16 @@
+# src/doit/browser/controller.py [v1.8]
 import asyncio
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from urllib.parse import urlparse
 from doit.utils.session_logger import logger
-
 from playwright.async_api import (
     async_playwright,
     BrowserContext,
     Page,
     TimeoutError as PWTimeout,
 )
-
 from ..config import Config
-
 
 # -----------------------------
 # Exceptions
@@ -20,14 +18,11 @@ from ..config import Config
 class BrowserError(Exception):
     pass
 
-
 class EdgeUnavailableError(BrowserError):
     pass
 
-
 class AllowlistError(BrowserError):
     pass
-
 
 # -----------------------------
 # Browser Controller
@@ -35,7 +30,6 @@ class AllowlistError(BrowserError):
 class BrowserController:
     """
     Edge‑only Playwright controller for Milestone 2.
-
     Supports:
     - Persistent profile per project
     - New chat
@@ -54,22 +48,26 @@ class BrowserController:
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
         self.session_dir: Optional[Path] = None
+        
+        # === < Phase 7 > ===
+        self.chat_page: Optional[Page] = None       # Tab A: LLM interface
+        self.workspace_page: Optional[Page] = None  # Tab B: Browser tool execution
+        # === < / Phase 7 > ===
 
         # Load from config.playwright (which reads from playwright_config.yaml)
         pw_cfg = config.playwright
-        self.timeout_ms = pw_cfg.timeout_ms  # Should be 20000
-        self.navigation_timeout_ms = pw_cfg.navigation_timeout_ms  # Should be 30000
+        self.timeout_ms = pw_cfg.timeout_ms
+        self.navigation_timeout_ms = pw_cfg.navigation_timeout_ms
         self.headless = pw_cfg.headless
         self.launch_args = pw_cfg.launch_args
-        self.viewport = pw_cfg.viewport      # ADDED
-        self.slow_mo = pw_cfg.slow_mo        # ADDED
-        self.model_name = config.browser.default_model  # From config.yaml
+        self.viewport = pw_cfg.viewport
+        self.slow_mo = pw_cfg.slow_mo
+        self.model_name = config.browser.default_model
 
         # Load selectors (will be overridden per URL)
         self.selectors = pw_cfg.selectors.data
-
         self.current_domain = None
-        self.strict_selectors = False   # temporary
+        self.strict_selectors = False
 
     # -----------------------------
     # Internal helpers
@@ -84,13 +82,12 @@ class BrowserController:
     async def get_status(self) -> str:
         """
         Returns current chat status.
-        
         Possible values: "idle", "sending", "generating", "complete", "error"
         """
         if not self.page:
             return "error"
         
-        # Check for generating indicator (optional - don't fail if missing)
+        # Check for generating indicator (optional)
         generating_sel = self.sel("generating_indicator")
         if generating_sel:
             try:
@@ -100,7 +97,7 @@ class BrowserController:
             except:
                 pass
         
-        # Check if send button is enabled (indicates ready for input)
+        # Check if send button is enabled
         send_enabled = self.sel("send_button_enabled")
         if send_enabled:
             try:
@@ -110,7 +107,7 @@ class BrowserController:
             except:
                 pass
         
-        # Check if there's a complete response (assistant message exists)
+        # Check if there's a complete response
         assistant_sel = self.sel("assistant_message") or self.sel("message_container")
         if assistant_sel:
             try:
@@ -120,7 +117,7 @@ class BrowserController:
             except:
                 pass
         
-        return "idle"  # Default assumption
+        return "idle"
 
     # -----------------------------
     # Playwright lifecycle
@@ -145,13 +142,10 @@ class BrowserController:
                 "Microsoft Edge (msedge) could not be launched. "
                 "This controller is Edge‑only."
             ) from exc
-      
-            
+        
     async def open_chat_session(self, project_name: str) -> Page:
         """Open persistent Edge session for a project."""
         await self.ensure_running()
-
-        # workspace = Path(self.config.data["workspace_root"]).resolve()
         workspace = self.config.workspace_root
         sessions_dir = workspace / ".doit" / "sessions"
         sessions_dir.mkdir(parents=True, exist_ok=True)
@@ -163,21 +157,19 @@ class BrowserController:
         logger.info("Session exists: %s", self.session_dir.exists())
 
         try:
-            # Check if we already have a context (browser might be open)
             if self.context:
                 logger.info("Closing existing context...")
                 await self.context.close()
             
-            # Launch persistent context - this reuses existing profile if directory exists 
             self.context = await self.playwright.chromium.launch_persistent_context(
                 user_data_dir=str(self.session_dir),
                 channel="msedge",
                 headless=self.headless,
                 args=self.launch_args,
-                viewport=self.viewport,        # FIXED: uses instance attribute
-                slow_mo=self.slow_mo           # FIXED: uses instance attribute                
+                viewport=self.viewport,
+                slow_mo=self.slow_mo                
             )
-            logger.info("Persistent context launched with user data dir: %s",self.session_dir)
+            logger.info("Persistent context launched with user data dir: %s", self.session_dir)
             
         except Exception as exc:
             logger.error("Failed to launch persistent context: %s", exc, exc_info=False)
@@ -189,8 +181,17 @@ class BrowserController:
         pages = self.context.pages
         self.page = pages[0] if pages else await self.context.new_page()
         self.page.set_default_timeout(self.timeout_ms)
-        
+            
         logger.info("Page ready, URL: %s", self.page.url)
+        # === < Phase 7 > ===
+        self.chat_page = self.page  # Alias for clarity
+
+        # Initialize workspace page (Tab B)
+        self.workspace_page = await self.context.new_page()    
+        await self.workspace_page.goto("about:blank", wait_until="domcontentloaded", timeout=self.navigation_timeout_ms)
+        logger.info("Workspace page initialized")
+        # === < / Phase 7 > ===
+
         return self.page
 
     async def close_session(self):
@@ -205,17 +206,15 @@ class BrowserController:
 
         self.context = None
         self.page = None
+        self.chat_page = None
+        self.workspace_page = None
         self.playwright = None
-        # Do NOT delete self.session_dir - it contains the persistent profile 
-        ### self.session_dir = None
 
     # -----------------------------
     # Allowlist
     # -----------------------------
     def _is_url_allowed(self, url: str) -> bool:
         allowlist = []
-
-        # workspace = Path(self.config.data["workspace_root"]).resolve()
         workspace = self.config.workspace_root
         allowlist_file = workspace / ".doit" / "allowlist.txt"
 
@@ -243,12 +242,6 @@ class BrowserController:
         return False
 
     def validate_selectors(self) -> List[str]:
-        """
-        Validate that required selectors exist.
-        
-        Returns:
-            List of missing selector keys
-        """
         required = [
             'new_chat_button',
             'send_button_enabled',
@@ -268,23 +261,12 @@ class BrowserController:
         return missing
 
     def get_selector_with_fallback(self, key: str, fallback: str = None) -> Optional[str]:
-        """
-        Get selector with fallback options.
-        
-        Tries:
-        1. Configured selector for current URL
-        2. Provided fallback
-        3. Common patterns
-        """
         selector = self.sel(key)
-        
         if selector:
             return selector
-        
         if fallback:
             return fallback
         
-        # Common fallback patterns
         common_fallbacks = {
             'new_chat_button': ['button:has-text("New chat")', '[aria-label="New chat"]'],
             'send_button_enabled': ['button[type="submit"]:not([disabled])', 'button.send:enabled'],
@@ -297,10 +279,9 @@ class BrowserController:
         return fallbacks[0] if fallbacks else None
 
     def get_selectors_for_url(self, url: str) -> dict:
-        """Load selectors for a specific URL domain. Returns empty dict if not found."""
         from urllib.parse import urlparse
         domain = urlparse(url).netloc.replace('www.','')
-        selector_file = self.doit_dir / 'selectors' / f"{domain}.yaml"
+        selector_file = self.config.doit_dir / 'selectors' / f"{domain}.yaml"
         
         logger.debug("Looking for selector file: %s", selector_file)
         logger.debug("File exists: %s", selector_file.exists())
@@ -317,13 +298,10 @@ class BrowserController:
         return {}
         
     def _load_selectors_for_url(self, url: str):
-        """Load selectors for the current URL domain."""
         logger.debug("Loading selectors for URL: %s", url)
         self.selectors = self.config.get_selectors_for_url(url)
         logger.debug("Selectors loaded: %s", list(self.selectors.keys()))
         
-        # Also update the required keys mapping for backward compatibility
-        # Map 'send_enabled' to 'send_button_enabled' if needed
         if 'send_button_enabled' in self.selectors and 'send_enabled' not in self.selectors:
             self.selectors['send_enabled'] = self.selectors['send_button_enabled']
             logger.debug("Added 'send_enabled' alias for 'send_button_enabled'")
@@ -332,7 +310,14 @@ class BrowserController:
         """Navigate to URL and load domain-specific selectors."""
         if not self.page:
             raise BrowserError("Session not open.")
-        
+
+        # === < Phase 7 > ===
+        safe_schemes = ("about:", "data:", "chrome-extension:", "chrome:")
+        if url.startswith(safe_schemes):
+            await self.page.goto(url, wait_until="domcontentloaded")
+            return
+        # === < / Phase 7 > ===
+            
         if not self._is_url_allowed(url):
             raise AllowlistError(f"URL not allowed: {url}")
         
@@ -359,50 +344,32 @@ class BrowserController:
             return False        
 
     # -----------------------------
-    # SSO Login Helper (FIXED: properly indented as a method)
+    # SSO Login Helper
     # -----------------------------
     async def wait_for_sso(self, target_host: str, timeout_ms: int = 120000):
-        """
-        If an SSO/login page appears, wait for the user to complete manual login
-        and for navigation to the target_host (e.g. securegpt.intraxa).
-        """
         if not self.page:
             raise BrowserError("Session not open.")
 
-        # quick check: if already on target host, return immediately
         try:
             parsed = urlparse(self.page.url)
             if parsed.netloc and target_host in parsed.netloc:
-                return
+                 return
         except Exception:
             pass
 
-        # Wait for either a login page or direct navigation to target_host.
-        # First wait briefly to see if a login page appears.
         try:
             await self.page.wait_for_url("**/login**", timeout=5000)
-            # user likely needs to login manually; wait for navigation to target_host
             await self.page.wait_for_url(f"**://*{target_host}**/*", timeout=timeout_ms)
         except PWTimeout:
-            # no explicit /login detected; still wait for target_host navigation
             try:
                 await self.page.wait_for_url(f"**://*{target_host}**/*", timeout=timeout_ms)
             except PWTimeout:
-                # final fallback: do nothing (caller can decide)
                 return
 
     # -----------------------------
-    # Status API
+    # Status API (Updated)
     # -----------------------------
     async def get_status(self) -> str:
-        """
-        Returns:
-        - "idle"
-        - "sending"
-        - "generating"
-        - "complete"
-        - "error"
-        """
         if not self.page:
             return "error"
 
@@ -461,10 +428,8 @@ class BrowserController:
     # -----------------------------
     async def select_model(self, model_name: Optional[str] = None):
         model_name = model_name or self.model_name
-
         model_selector = self.sel("model_selector_button")
         if not model_selector:
-            # Fallback selector
             model_selector = "button:has-text('Model')"
         
         btn = await self.page.wait_for_selector(model_selector, timeout=self.timeout_ms)
@@ -477,12 +442,6 @@ class BrowserController:
     # Prompt sending
     # -----------------------------
     async def send_prompt(self, text: str, files: Optional[List[str]] = None):
-        """
-        Send a prompt to the chat interface.
-        
-        Critical selectors: prompt_input, send_button_enabled
-        If missing: prints warning but does NOT exit (for initial testing)
-        """
         if not self.page:
             raise BrowserError("Session not open.")
 
@@ -496,34 +455,21 @@ class BrowserController:
 
         if not prompt_sel:
             print(f"⚠️ CRITICAL WARNING: Selector 'prompt_input' missing for domain '{self.current_domain}'")
-            print(f"   Cannot send prompt. Please add to .doit/selectors/{self.current_domain}.yaml")
             if self.strict_selectors:
-                raise BrowserError(f"Missing required selector: prompt_input")
-            return  # Exit early without sending
+                raise BrowserError("Missing required selector: prompt_input")
+            return
 
-        # send_enabled = self.sel("send_button_enabled")
         if not send_enabled:
             print(f"⚠️ CRITICAL WARNING: Selector 'send_button_enabled' missing for domain '{self.current_domain}'")
-            print(f"   Cannot send prompt. Please add to .doit/selectors/{self.current_domain}.yaml")
             if self.strict_selectors:
-                raise BrowserError(f"Missing required selector: send_button_enabled")
-            return  # Exit early without sending
+                raise BrowserError("Missing required selector: send_button_enabled")
+            return
 
-        # Fill prompt
         try:
             await self.page.focus(prompt_sel)
-            
-            # Clear existing content first (Ctrl+A + Delete)
             await self.page.keyboard.press("Control+A")
             await self.page.keyboard.press("Delete")
-            
-            # Type the text
             await self.page.type(prompt_sel, text, delay=50)
-            # # # await self.page.eval_on_selector(
-                # # # prompt_sel,
-                # # # "el => { el.innerText = arguments[0]; }",
-                # # # text,
-            # # # )
             print(f"✓ Prompt filled: {text[:50]}...")
         except Exception as e:
             print(f"⚠️ Failed to fill prompt: {e}")
@@ -531,16 +477,13 @@ class BrowserController:
                 raise
             return
 
-        # Upload files if needed
         if files:
             try:
                 await self.upload_file(files)
                 print(f"✓ Uploaded {len(files)} file(s)")
             except Exception as e:
                 print(f"⚠️ File upload failed: {e}")
-                # Continue anyway - prompt may still send
 
-        # Click send button
         try:
             btn = await self.page.wait_for_selector(send_enabled, timeout=self.timeout_ms)
             await btn.click()
@@ -551,11 +494,8 @@ class BrowserController:
                 raise
             return
 
-        # Wait for generation to start
         await self._wait(200)
-
-        # Wait for completion using status detection
-        timeout = self.timeout_ms * 6  # 6x default timeout (e.g., 120 seconds)
+        timeout = self.timeout_ms * 6
         start_time = asyncio.get_event_loop().time()
         
         while (asyncio.get_event_loop().time() - start_time) < timeout / 1000:
@@ -566,7 +506,7 @@ class BrowserController:
                     break
             except Exception as e:
                 print(f"⚠️ Error checking status: {e}")
-            await self._wait(1000)  # Check every second
+            await self._wait(1000)
         else:
             print(f"⚠️ Timeout waiting for response after {timeout/1000} seconds")
 
@@ -574,11 +514,6 @@ class BrowserController:
     # Wait for completion of response 
     # -----------------------------
     async def wait_for_completion(self, timeout_ms: int = 120000):
-        """
-        Wait for the assistant to finish responding.
-        Monitors the model selector button for the 'pointer-events-none' class.
-        When that class is present, response is generating. When it disappears, response is complete.
-        """
         model_sel = self.sel("model_selector_button")
         if not model_sel:
             logger.info("No model_selector_button selector")
@@ -594,7 +529,6 @@ class BrowserController:
         while (asyncio.get_event_loop().time() - start_time) * 1000 < timeout_ms:
             button = await self.page.query_selector(model_sel)
             if button:
-                # Check if button has 'pointer-events-none' class or disabled attribute
                 classes = await button.get_attribute("class") or ""
                 is_generating = "pointer-events-none" in classes
                 
@@ -603,7 +537,7 @@ class BrowserController:
                     generating_detected = True
                 elif not is_generating and generating_detected:
                     logger.info("Response generation completed")
-                    await self._wait(1000)  # Extra buffer for final rendering
+                    await self._wait(1000)
                     return
             await asyncio.sleep(check_interval)
         
@@ -613,11 +547,9 @@ class BrowserController:
     # File upload
     # -----------------------------
     async def upload_file(self, paths: List[str]):
-        """Upload files using the web UI (optional feature)."""
         upload_btn_sel = self.sel("upload_button")
         if not upload_btn_sel:
             print(f"⚠️ Optional selector 'upload_button' missing for {self.current_domain}")
-            print(f"   File upload will be skipped")
             return
         
         try:
@@ -639,10 +571,9 @@ class BrowserController:
             print(f"⚠️ Could not click attach button: {e}")
             return
         
-        # Handle file chooser
         try:
             async with self.page.expect_file_chooser() as fc_info:
-                pass  # The click already triggered the chooser
+                pass
             file_chooser = await fc_info.value
             await file_chooser.set_files(paths)
             print(f"✓ Uploaded {len(paths)} file(s)")
@@ -650,15 +581,10 @@ class BrowserController:
             print(f"⚠️ File chooser error: {e}")
 
     # -----------------------------
-    # Extraction Modes (Option E)
+    # Extraction Modes
     # -----------------------------
     async def extract_last_assistant_message(self) -> Optional[str]:
-        """
-        Extract the last assistant message from the conversation.
-        Handles responses split across multiple token divs.
-        """
-        # Get the last assistant message container
-        selector = self.sel("assistant_message")  # div[data-testid^="completion-"]
+        selector = self.sel("assistant_message")
         if not selector:
             logger.info("No selector for assistant_message")
             return None
@@ -668,33 +594,22 @@ class BrowserController:
             logger.info("No assistant messages found")
             return None
         
-        # Get the last container
         last_container = containers[-1]
-        
-        # Debug: Count token divs
         token_divs = await last_container.query_selector_all("div[data-testid*='-token-']")
         logger.debug("Found %d token divs", len(token_divs))
             
-        # # # # Find all token divs inside (div[data-testid^="completion-1-token-"])
-        # # # token_selector = f"{selector}-token-"
-        # # # token_divs = await last_container.query_selector_all(f"div[data-testid*='-token-']")
-        
         if token_divs:
-            # Combine text from all token divs
             full_text = ""
             for i, token_div in enumerate(token_divs):
                 text = await token_div.inner_text()
                 logger.debug("Token %d: %s...", i, text[:50])
-                full_text += text + "\n" # Add newline for better separation
+                full_text += text + "\n"
             return full_text.strip()
         else:
-            # Fallback: get all text from the container
             return await last_container.inner_text()
 
     async def extract_all_messages(self) -> List[Dict[str, str]]:
         results = []
-
-        # User messages
         user_sel = self.sel("user_message")
         if user_sel:
             user_nodes = await self.page.query_selector_all(user_sel)
@@ -702,14 +617,12 @@ class BrowserController:
                 txt = await node.inner_text()
                 results.append({"role": "user", "text": txt})
 
-        # Assistant messages
         asst_sel = self.sel("message_container")
         if asst_sel:
             asst_nodes = await self.page.query_selector_all(asst_sel)
             for node in asst_nodes:
                 txt = await node.inner_text()
                 results.append({"role": "assistant", "text": txt})
-
         return results
 
     async def extract_last_assistant_tokens(self) -> List[str]:
@@ -727,7 +640,6 @@ class BrowserController:
         await copy_btn.hover()
         await copy_btn.click()
 
-        # Read clipboard
         try:
             return await self.page.evaluate("navigator.clipboard.readText()")
         except Exception:
@@ -742,6 +654,5 @@ class BrowserController:
         return await body.inner_text() if body else ""
 
     async def fetch_youtube_transcript(self, url: str) -> Optional[str]:
-        # Basic placeholder; YouTube transcript extraction is Milestone 4
         await self.navigate(url)
         return await self.fetch_page_text(url)

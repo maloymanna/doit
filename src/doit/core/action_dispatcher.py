@@ -1,16 +1,39 @@
-# src/doit/core/action_dispatcher.py [v2.6]
+# src/doit/core/action_dispatcher.py [v2.7]
 import sys
+# === < Phase 7 > ===
+import asyncio
+# === < / Phase 7 > ===
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from .security_enforcer import SecurityEnforcer, GateDecision
 from doit.utils.session_logger import logger
 
+# === < Phase 7 > ===
+def _safe_run_async(loop: asyncio.AbstractEventLoop, coro):
+    """Execute async coroutine safely whether loop is running or not."""
+    if loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result()
+    return loop.run_until_complete(coro)
+# === < / Phase 7 > ===
+
 class ActionDispatcher:
-    def __init__(self, workspace_dir: Path, project_dir: Path, autonomy_mode: int = 0, whitelist: Optional[List[str]] = None):
+    # === < Phase 7 > ===
+    # Signature aligned with v2.6 + Phase 7 async/controller injection
+    def __init__(self, workspace_dir: Path, project_dir: Path, 
+                 controller=None, loop=None):
+    # === < / Phase 7 > ===
         self.workspace = workspace_dir
         self.project_dir = project_dir
-        self.autonomy = autonomy_mode
-        self.whitelist = whitelist or []
+        # === < Phase 7 > ===
+        self.controller = controller          # Optional: BrowserController for browser_ops
+        self.loop = loop                      # Optional: asyncio loop for async bridging
+        # === < / Phase 7 > ===
+        
+        # Defaults (explicitly overridden by AgentOrchestrator from config.yaml)
+        self.autonomy = 0
+        self.whitelist = []
+        
         self.enforcer = SecurityEnforcer()
         self._tools: Dict[str, Callable] = {}
 
@@ -21,7 +44,6 @@ class ActionDispatcher:
         sec_result = self.enforcer.evaluate(action, self.autonomy, self.project_dir, self.whitelist)
         decision = sec_result["decision"]
         
-        # ✅ Trace security decision for audit/debugging
         logger.debug("Security gate: tool=%s, mode=%d, decision=%s, reason=%s", 
                      action.get("tool_name"), self.autonomy, decision.name, sec_result.get("reason", ""))
 
@@ -41,8 +63,12 @@ class ActionDispatcher:
         if tool_name in self._tools:
             try:
                 params = action.get("parameters", {})
-                return self._tools[tool_name](params, project_dir=self.project_dir)
+                # === < Phase 7 > ===
+                ctx = {"controller": self.controller, "loop": self.loop, "project_dir": self.project_dir}
+                # === < / Phase 7 > ===
+                return self._tools[tool_name](params, **ctx)
             except Exception as e:
+                logger.error("Tool execution failed: %s", e, exc_info=False)
                 return {"status": "error", "output": f"Execution failed: {str(e)}"}
         return {"status": "error", "output": f"Tool '{tool_name}' not registered."}
 

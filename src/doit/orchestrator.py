@@ -37,7 +37,9 @@ class Orchestrator:
     async def open_chat_session(self, project_name: str):
         bc = await self.ensure_browser()
         # Ensure workspace_root is set in config data
+        # === < Phase 7 > ===
         return await bc.open_chat_session(project_name)
+        # === < / Phase 7 > ===
 
     async def close_browser(self):
         if self.browser:

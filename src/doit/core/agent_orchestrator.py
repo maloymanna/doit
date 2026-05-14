@@ -1,8 +1,12 @@
-# src/doit/core/agent_orchestrator.py [v4.7]
+# src/doit/core/agent_orchestrator.py [v4.8]
 import uuid
 import logging
+# === < Phase 7 > ===
+import asyncio
+from typing import Optional
+# === < / Phase 7 > ===
 from pathlib import Path
-from typing import Callable, Optional, Any, Dict, List
+from typing import Callable, Any, Dict, List
 
 from .state_manager import SQLiteStateManager, VALID_STATUSES
 from .prompt_builder import SingleLinePromptBuilder
@@ -22,11 +26,15 @@ class AgentOrchestrator:
                  action_dispatcher: Optional[Any] = None,
                  prompt_builder: Optional[SingleLinePromptBuilder] = None,
                  validator: Optional[JSONValidator] = None,
+                 # === < Phase 7 > ===
+                 # Config-driven values (caller reads from config.yaml via config.py)
                  autonomy_mode: int = 0,
-                 whitelist: Optional[List[str]] = None):
+                 whitelist: Optional[List[str]] = None,
+                 controller: Optional[Any] = None,
+                 loop: Optional[asyncio.AbstractEventLoop] = None):
+                 # === < / Phase 7 > ===
         self.workspace = workspace_dir
         self.project = project
-        # Project-scoped directory for all tool I/O
         self.project_dir = workspace_dir / "projects" / project
         self.project_dir.mkdir(parents=True, exist_ok=True)
         
@@ -35,21 +43,46 @@ class AgentOrchestrator:
         self.validator = validator or JSONValidator()
         self.state_mgr = SQLiteStateManager(workspace_dir)
 
-        # 1. UNCONDITIONALLY register core tools to builder (fixes ||TOOLS|| empty bug)
+        # UNCONDITIONALLY register core tools to builder
         self.builder.register_tool("file_read", "Reads content from a file relative to project dir")
         self.builder.register_tool("file_write", "Writes content to a file relative to project dir")
         self.builder.register_tool("request_intervention", "Halts loop for user clarification")
+        
+        # === < Phase 7 > ===
+        self.builder.register_tool("browser_navigate", "Navigates browser to a URL")
+        self.builder.register_tool("browser_fill", "Fills a form field by CSS selector")
+        self.builder.register_tool("browser_click_text", "Clicks an element by visible text")
+        self.builder.register_tool("browser_wait_for_element", "Waits for a selector to be visible")
+        # === < / Phase 7 > ===
 
-        # 2. Initialize dispatcher & UNCONDITIONALLY register tools to it
+        # Initialize dispatcher
         if action_dispatcher is None:
-            self.dispatcher = ActionDispatcher(workspace_dir, self.project_dir, autonomy_mode=autonomy_mode, whitelist=whitelist)
+            # === < Phase 7 > ===
+            # Matches v4.7 dispatcher init pattern + Phase 7 controller/loop injection
+            self.dispatcher = ActionDispatcher(workspace_dir, self.project_dir, controller, loop)
+            # === < / Phase 7 > ===
         else:
             self.dispatcher = action_dispatcher
 
+        # === < Phase 7 > ===
+        # Explicitly assign config-driven autonomy & whitelist (never hardcoded)
+        self.dispatcher.autonomy = autonomy_mode
+        self.dispatcher.whitelist = whitelist or []
+        # === < / Phase 7 > ===
+
+        # Register implementations
         from ..plugins.file_ops import file_read, file_write
         self.dispatcher.register("file_read", file_read)
         self.dispatcher.register("file_write", file_write)
         self.dispatcher.register("request_intervention", request_intervention)
+        
+        # === < Phase 7 > ===
+        from ..plugins.browser_ops import browser_navigate, browser_fill, browser_click_text, browser_wait_for_element
+        self.dispatcher.register("browser_navigate", browser_navigate)
+        self.dispatcher.register("browser_fill", browser_fill)
+        self.dispatcher.register("browser_click_text", browser_click_text)
+        self.dispatcher.register("browser_wait_for_element", browser_wait_for_element)
+        # === < / Phase 7 > ===
 
         self.expected_schema = {
             "type": "object",
@@ -62,7 +95,20 @@ class AgentOrchestrator:
             "additionalProperties": False
         }
 
-    def run(self, goal_query: str, max_steps: int = 5) -> dict:
+    # === < Phase 7 > ===
+    # max_steps now defaults to None, reads from config.yaml if not provided
+    def run(self, goal_query: str, max_steps: Optional[int] = None) -> dict:
+        if max_steps is None:
+            try:
+                from ..config import Config
+                cfg = Config(self.workspace)
+                max_steps = cfg.autonomy.global_max_iterations
+                logger.debug("Using config-driven max_steps: %d", max_steps)
+            except Exception as e:
+                max_steps = 10  # Safe fallback matching config.yaml default
+                logger.warning("Config load failed for max_steps (%s), using default: %d", e, max_steps)
+    # === < / Phase 7 > ===
+        
         if not self.llm:
             raise RuntimeError("AgentOrchestrator requires an llm_client.")
 
@@ -106,6 +152,9 @@ class AgentOrchestrator:
 
             if result.get("status") == "intervention_required":
                 print(f"\n🛑 INTERVENTION: {last_result}")
+                # === < Phase 7 > ===
+                logger.error("Intervention triggered: %s", last_result)
+                # === < / Phase 7 > ===
                 self.state_mgr.update_goal_status(goal_id, "requires_user_confirmation")
                 return {"goal_id": goal_id, "status": "requires_user_confirmation", "reason": last_result}
 

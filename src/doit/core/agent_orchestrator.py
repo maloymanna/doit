@@ -82,6 +82,14 @@ class AgentOrchestrator:
         self.dispatcher.register("browser_fill", browser_fill)
         self.dispatcher.register("browser_click_text", browser_click_text)
         self.dispatcher.register("browser_wait_for_element", browser_wait_for_element)
+
+        # === < Phase 7.1 > ===
+        # Register LLM UI tools (orchestrator-only, NOT added to builder)
+        from ..plugins.llm_ui_ops import llm_attach_file
+        self.dispatcher.register("llm_attach_file", llm_attach_file)
+        # Do NOT call self.builder.register_tool() for this
+        # === < / Phase 7.1 > ===
+
         # === < / Phase 7 > ===
 
         self.expected_schema = {

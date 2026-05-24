@@ -29,6 +29,7 @@ env/
 # OS junk
 .DS_Store
 Thumbs.db
+obsolete/
 
 # Logs
 *.log

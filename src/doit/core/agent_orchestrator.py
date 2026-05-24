@@ -1,4 +1,4 @@
-# src/doit/core/agent_orchestrator.py [v4.8]
+# src/doit/core/agent_orchestrator.py [v4.9 ]
 import uuid
 import logging
 # === < Phase 7 > ===
@@ -53,6 +53,11 @@ class AgentOrchestrator:
         self.builder.register_tool("browser_fill", "Fills a form field by CSS selector")
         self.builder.register_tool("browser_click_text", "Clicks an element by visible text")
         self.builder.register_tool("browser_wait_for_element", "Waits for a selector to be visible")
+        self.builder.register_tool("browser_screenshot", "Captures full-page screenshot | params: {\"path\": \"relative/path.png\"}")
+        self.builder.register_tool("browser_trigger_download", 
+            "Clicks a selector to trigger file download | params: {\"selector\": \"string\", \"download_dir\": \"string\"}")        
+        self.builder.register_tool("browser_fetch_resource", 
+            "Fetches direct resource URL and saves to project dir | params: {\"url\": \"string\", \"save_path\": \"string\"}")
         # === < / Phase 7 > ===
 
         # Initialize dispatcher
@@ -77,11 +82,17 @@ class AgentOrchestrator:
         self.dispatcher.register("request_intervention", request_intervention)
         
         # === < Phase 7 > ===
-        from ..plugins.browser_ops import browser_navigate, browser_fill, browser_click_text, browser_wait_for_element
+        from ..plugins.browser_ops import (
+            browser_navigate, browser_fill, browser_click_text, browser_wait_for_element,
+            browser_screenshot, browser_trigger_download, browser_fetch_resource
+        )
         self.dispatcher.register("browser_navigate", browser_navigate)
         self.dispatcher.register("browser_fill", browser_fill)
         self.dispatcher.register("browser_click_text", browser_click_text)
         self.dispatcher.register("browser_wait_for_element", browser_wait_for_element)
+        self.dispatcher.register("browser_screenshot", browser_screenshot)
+        self.dispatcher.register("browser_trigger_download", browser_trigger_download)
+        self.dispatcher.register("browser_fetch_resource", browser_fetch_resource)
 
         # === < Phase 7.1 > ===
         # Register LLM UI tools (orchestrator-only, NOT added to builder)

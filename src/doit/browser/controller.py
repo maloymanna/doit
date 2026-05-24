@@ -182,17 +182,24 @@ class BrowserController:
         self.page = pages[0] if pages else await self.context.new_page()
         self.page.set_default_timeout(self.timeout_ms)
             
-        logger.info("Page ready, URL: %s", self.page.url)
         # === < Phase 7 > ===
         self.chat_page = self.page  # Alias for clarity
 
         # Initialize workspace page (Tab B)
-        self.workspace_page = await self.context.new_page()    
-        await self.workspace_page.goto("about:blank", wait_until="domcontentloaded", timeout=self.navigation_timeout_ms)
-        logger.info("Workspace page initialized")
+        self.workspace_page = None # Laxy init: created only when first browser tool is used   
+        ### await self.workspace_page.goto("about:blank", wait_until="domcontentloaded", timeout=self.navigation_timeout_ms)
+        ### logger.info("Workspace page initialized")
         # === < / Phase 7 > ===
 
+        logger.info("Page ready, URL: %s", self.page.url)
         return self.page
+
+    async def _ensure_workspace_page(self) -> Page:
+        """ Lazily create workspace page on first browser tool call"""
+        if self.workspace_page is None:
+            self.workspace_page = await self.context.new_page()
+            logger.info("Workspace page (Tab B) created for browser tools")
+        return self.workspace_page
 
     async def close_session(self):
         """Close browser and Playwright, but preserve session files."""
